@@ -38,14 +38,79 @@ jobs:
       - name: Build the geometry kernel for WebAssembly
         run: cargo check -p md-geom --target wasm32-unknown-unknown
 
+  studio-backend:
+    name: Studio backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/studio/src-tauri
+
+      # The studio is a separate cargo workspace precisely because it needs these, and
+      # for a long time that meant it was never built in CI at all — which is how ~700
+      # lines of backend and a startup-panicking updater config went unnoticed.
+      - name: Install the webview toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
+            patchelf
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # `generate_context!` embeds the frontend and the icons, so both must exist before
+      # the Rust side will compile at all.
+      - name: Prepare the frontend and icons
+        run: |
+          pnpm --filter @master-design/studio build
+          pnpm --filter @master-design/studio exec tauri icon src-tauri/icons/icon.svg
+
+      - name: Format
+        working-directory: apps/studio/src-tauri
+        run: cargo fmt --all --check
+
+      - name: Lint
+        working-directory: apps/studio/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: apps/studio/src-tauri
+        run: cargo test
+
+      # Starting the application is its own class of failure: a malformed plugin config
+      # compiles perfectly and then panics before a window ever appears.
+      - name: The application actually starts
+        run: |
+          sudo apt-get install -y xvfb x11-utils xdotool imagemagick
+          (cd apps/studio/src-tauri && cargo build)
+          ./scripts/studio-shot.sh /tmp/ci-studio.png 1280 800
+          test -s /tmp/ci-studio.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: studio-screenshot
+          path: /tmp/ci-studio.png
+          if-no-files-found: ignore
+
   frontend:
     name: Studio frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here on purpose. The root package.json declares
+      # `packageManager: pnpm@…`, and supplying both makes the action refuse to start
+      # rather than pick one.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22

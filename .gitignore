@@ -14,6 +14,12 @@ dist-ssr
 apps/studio/src-tauri/gen
 apps/studio/src-tauri/target
 
+# App icons are generated from icon.svg by `tauri icon`, which CI runs before every
+# build. Committing a dozen rasterisations of a file that is already in the repository
+# just guarantees they drift from their source.
+apps/studio/src-tauri/icons/*
+!apps/studio/src-tauri/icons/icon.svg
+
 # WASM build output
 packages/md-geom-wasm/pkg
 crates/md-geom/pkg
@@ -38,6 +44,10 @@ Thumbs.db
 *.jks
 *.key
 !**/public.key
+# The development updater key is committed deliberately so the update channel can be
+# tested end to end. dev-keys/README.md explains why, and how to rotate it before any
+# public release.
+!dev-keys/updater.key
 
 # Session state inside a project directory: whose cursor is where is not shared work.
 .md/

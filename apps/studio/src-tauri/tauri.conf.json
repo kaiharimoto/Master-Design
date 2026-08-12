@@ -28,7 +28,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "deb", "appimage", "dmg"],
+    "targets": [
+      "nsis",
+      "msi",
+      "deb",
+      "appimage",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -51,6 +57,17 @@
     },
     "android": {
       "minSdkVersion": 24
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJDREU3OTNEQThCNTFDREEKUldUYUhMV29QWG5lTERwOHphNzhCVnZwYUdRaU9RdlJ1YnZOeG5aZHN5aktkcnRWSlRXN2hjczcK",
+      "endpoints": [
+        "https://github.com/kaiharimoto/Master-Design/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

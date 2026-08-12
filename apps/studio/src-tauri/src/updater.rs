@@ -21,7 +21,12 @@
 //! exists to prevent.
 
 use serde::{Deserialize, Serialize};
+
+// Only the Android path needs these: it is the one that writes a downloaded file to a
+// cache directory. The desktop updater hands all of that to the Tauri plugin.
+#[cfg(target_os = "android")]
 use std::path::PathBuf;
+#[cfg(target_os = "android")]
 use tauri::Manager;
 
 /// Where releases are published. Compiled in rather than configurable: an updater that
@@ -180,7 +185,9 @@ fn summarize(body: &str) -> String {
     }
 }
 
-pub fn open_release_page(app: &tauri::AppHandle) -> Result<(), String> {
+/// Takes an `AppHandle` it does not use, so that the command signature stays uniform
+/// with the rest of the updater surface and can grow a window reference later.
+pub fn open_release_page(_app: &tauri::AppHandle) -> Result<(), String> {
     let url = format!("https://github.com/{REPO}/releases/latest");
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
 }

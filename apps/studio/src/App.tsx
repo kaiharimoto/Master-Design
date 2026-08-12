@@ -8,6 +8,31 @@ import { Updates } from "./Updates";
 export function App() {
   const [kind, setKind] = createSignal<ShellKind>("desktop");
   const [coarse, setCoarse] = createSignal(false);
+  const [changedOutside, setChangedOutside] = createSignal(false);
+
+  /**
+   * Pick up changes made to the project by something other than this window — in
+   * practice, an AI editing over MCP.
+   *
+   * Without this the studio holds a stale copy and its next save writes that copy back
+   * over the model's work, destroying it silently. The backend watches the files and
+   * emits an event; the policy for what to do about it lives here, next to the interface
+   * that has to explain it.
+   */
+  async function watchForExternalChanges() {
+    if (!hasBackend()) return;
+    const { listen } = await import("@tauri-apps/api/event");
+
+    return listen("project-changed", () => {
+      // The backend already filtered out its own writes. Anything that reaches here is
+      // somebody else's, so take it — the alternative is holding a copy we know to be
+      // out of date.
+      void actions.reload().then(() => {
+        setChangedOutside(true);
+        window.setTimeout(() => setChangedOutside(false), 5000);
+      });
+    });
+  }
 
   onMount(() => {
     const measure = () => {
@@ -25,7 +50,10 @@ export function App() {
 
     void actions.init();
 
+    const unlisten = watchForExternalChanges();
+
     onCleanup(() => {
+      void unlisten.then((stop) => stop?.());
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
       window.removeEventListener("keydown", onKeyDown);
@@ -106,6 +134,11 @@ export function App() {
           <Shell kind={kind()} coarse={coarse()} />
         </Show>
         <Updates />
+        <Show when={changedOutside()}>
+          <div class="toast toast--info" role="status">
+            <span>Reloaded — the project changed on disk.</span>
+          </div>
+        </Show>
         <Show when={state.error}>
           {(message) => (
             <div class="toast toast--error" role="alert">

@@ -26,8 +26,6 @@ jobs:
         with:
           workspaces: apps/studio/src-tauri
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -77,8 +75,6 @@ jobs:
         with:
           ndk-version: r26d
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22

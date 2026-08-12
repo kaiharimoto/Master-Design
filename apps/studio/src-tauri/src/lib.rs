@@ -11,6 +11,7 @@
 //! One implementation, three front ends.
 
 mod updater;
+mod watch;
 
 use md_anim::Registry;
 use md_doc::history::Session;
@@ -19,7 +20,7 @@ use md_doc::storage::{self, Request, RequestStatus};
 use md_doc::{Document, NodeId, Selector};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
 /// Everything an open project needs.
@@ -29,10 +30,18 @@ struct Studio {
     registry: Registry,
     /// Whether there are changes the file on disk does not have.
     dirty: bool,
+    /// Dropping this stops the watcher, which is exactly what should happen when a
+    /// different project is opened over the top of this one.
+    _watcher: Option<Box<dyn std::any::Any + Send>>,
 }
 
 #[derive(Default)]
-struct AppState(Mutex<Option<Studio>>);
+struct AppState {
+    studio: Mutex<Option<Studio>>,
+    /// Shared with the watcher thread so a save can mark itself as ours without taking
+    /// the editor lock the watcher would otherwise contend on.
+    gate: Arc<watch::WatchGate>,
+}
 
 /// What the frontend mirrors.
 #[derive(Serialize)]
@@ -79,8 +88,18 @@ impl EditorState {
 
 type Result<T> = std::result::Result<T, String>;
 
+/// Write the project, marking the write as ours first.
+///
+/// Every save goes through here. The marking is not optional: without it the watcher
+/// sees the studio's own save, reloads, and throws away the undo history for a change
+/// the user just made.
+fn save(studio: &Studio, gate: &watch::WatchGate) -> Result<()> {
+    gate.mark_self_write();
+    storage::save_project(&studio.project_dir, studio.session.document()).map_err(|e| e.to_string())
+}
+
 fn with_studio<T>(state: &State<AppState>, f: impl FnOnce(&mut Studio) -> Result<T>) -> Result<T> {
-    let mut guard = state.0.lock().map_err(|_| "editor state is poisoned".to_string())?;
+    let mut guard = state.studio.lock().map_err(|_| "editor state is poisoned".to_string())?;
     let studio = guard.as_mut().ok_or("no project is open")?;
     f(studio)
 }
@@ -123,7 +142,7 @@ fn load_registry(app: &tauri::AppHandle, project: &Path) -> Registry {
 
 #[tauri::command]
 fn editor_state(state: State<AppState>) -> Result<EditorState> {
-    let guard = state.0.lock().map_err(|_| "editor state is poisoned".to_string())?;
+    let guard = state.studio.lock().map_err(|_| "editor state is poisoned".to_string())?;
     Ok(guard.as_ref().map(EditorState::of).unwrap_or_else(EditorState::empty))
 }
 
@@ -140,14 +159,27 @@ fn project_open(app: tauri::AppHandle, state: State<AppState>, path: String) -> 
     let doc = storage::load_project(&root).map_err(|e| e.to_string())?;
     let registry = load_registry(&app, &root);
 
+    // Started before the state is swapped in, so there is no window in which the
+    // project is open but unwatched.
+    let watcher = match watch::watch_project(app.clone(), root.clone(), state.gate.clone()) {
+        Ok(handle) => Some(handle),
+        Err(e) => {
+            // Watching is a convenience, not a precondition for editing. Losing it means
+            // AI edits need a manual reload, which is worth a warning and not a refusal.
+            eprintln!("could not watch {}: {e}", root.display());
+            None
+        }
+    };
+
     let studio = Studio {
         session: Session::new(doc),
         project_dir: root,
         registry,
         dirty: false,
+        _watcher: watcher,
     };
     let snapshot = EditorState::of(&studio);
-    *state.0.lock().map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
+    *state.studio.lock().map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
     Ok(snapshot)
 }
 
@@ -182,9 +214,9 @@ fn project_create(
 
 #[tauri::command]
 fn project_save(state: State<AppState>) -> Result<EditorState> {
+    let gate = state.gate.clone();
     with_studio(&state, |studio| {
-        storage::save_project(&studio.project_dir, studio.session.document())
-            .map_err(|e| e.to_string())?;
+        save(studio, &gate)?;
         studio.dirty = false;
         Ok(EditorState::of(studio))
     })
@@ -246,6 +278,7 @@ struct PatchResult {
 
 #[tauri::command]
 fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<PatchResult> {
+    let gate = state.gate.clone();
     with_studio(&state, |studio| {
         let report = studio.session.apply(label, ops).map_err(|e| e.to_string())?;
         studio.dirty = true;
@@ -253,7 +286,7 @@ fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<Patc
         // Saved eagerly. The alternative — holding changes in memory until someone
         // presses Save — would mean an attached AI reading a stale project off disk,
         // and would lose work when the operating system reclaims the app on mobile.
-        if let Err(e) = storage::save_project(&studio.project_dir, studio.session.document()) {
+        if let Err(e) = save(studio, &gate) {
             return Err(format!("the change applied but could not be saved: {e}"));
         }
         studio.dirty = false;
@@ -264,18 +297,20 @@ fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<Patc
 
 #[tauri::command]
 fn doc_undo(state: State<AppState>) -> Result<EditorState> {
+    let gate = state.gate.clone();
     with_studio(&state, |studio| {
         studio.session.undo().map_err(|e| e.to_string())?;
-        let _ = storage::save_project(&studio.project_dir, studio.session.document());
+        let _ = save(studio, &gate);
         Ok(EditorState::of(studio))
     })
 }
 
 #[tauri::command]
 fn doc_redo(state: State<AppState>) -> Result<EditorState> {
+    let gate = state.gate.clone();
     with_studio(&state, |studio| {
         studio.session.redo().map_err(|e| e.to_string())?;
-        let _ = storage::save_project(&studio.project_dir, studio.session.document());
+        let _ = save(studio, &gate);
         Ok(EditorState::of(studio))
     })
 }
@@ -586,6 +621,43 @@ pub fn run() {
             update_install,
             update_open_release_page,
         ])
+        .setup(|app| {
+            // `md-studio --project <dir>` opens a project straight away. Useful on its
+            // own, and it is what lets the screenshot harness photograph a real document
+            // rather than the welcome screen.
+            if let Some(path) = project_argument() {
+                let handle = app.handle().clone();
+                let state = app.state::<AppState>();
+                if let Err(e) = project_open(handle, state, path.clone()) {
+                    // Not fatal: the welcome screen is a perfectly good place to land,
+                    // and refusing to start because one path was wrong would be worse
+                    // than showing it.
+                    eprintln!("could not open {path}: {e}");
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
-        .expect("failed to start Master Design");
+        // A plugin whose configuration is missing or malformed fails here, and the
+        // default panic prints a backtrace that buries the one line that matters.
+        .unwrap_or_else(|e| {
+            eprintln!("Master Design could not start: {e}");
+            std::process::exit(1);
+        });
+}
+
+/// Read `--project <dir>` (or `--project=<dir>`) from the command line.
+fn project_argument() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if let Some(rest) = args[i].strip_prefix("--project=") {
+            return Some(rest.to_string());
+        }
+        if args[i] == "--project" {
+            return args.get(i + 1).cloned();
+        }
+        i += 1;
+    }
+    None
 }

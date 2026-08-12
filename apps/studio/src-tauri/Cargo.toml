@@ -41,6 +41,10 @@ base64 = "0.22"
 semver = "1"
 sha2 = "0.10"
 ureq = { version = "2", features = ["json", "tls"] }
+# Watching the project directory, so an edit made by an AI over MCP appears on the
+# canvas instead of being silently overwritten by the studio's next save.
+notify = "6"
+notify-debouncer-mini = "0.4"
 
 # The bundled updater is desktop-only: it swaps a signed binary in place, which is not a
 # thing Android permits. See src/updater.rs for the APK path.

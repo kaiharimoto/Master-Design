@@ -969,6 +969,10 @@ input[type="color"] {
   border-color: var(--danger);
 }
 
+.toast--info {
+  border-color: var(--accent);
+}
+
 .update {
   position: fixed;
   top: calc(12px + env(safe-area-inset-top));
