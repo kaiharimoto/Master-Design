@@ -98,7 +98,11 @@ pub struct AppliesTo {
 
 impl Default for AppliesTo {
     fn default() -> Self {
-        AppliesTo { min_targets: 1, max_targets: None, kinds: any_kind() }
+        AppliesTo {
+            min_targets: 1,
+            max_targets: None,
+            kinds: any_kind(),
+        }
     }
 }
 
@@ -195,7 +199,10 @@ impl ParamSpec {
             ParamKind::Color => match value.as_str() {
                 Some(s) => md_doc::Color::parse(s)
                     .map(|_| ())
-                    .map_err(|e| AnimError::BadParam { key: self.key.clone(), reason: e.to_string() }),
+                    .map_err(|e| AnimError::BadParam {
+                        key: self.key.clone(),
+                        reason: e.to_string(),
+                    }),
                 None => wrong("a colour string"),
             },
             ParamKind::Boolean => {
@@ -211,7 +218,11 @@ impl ParamSpec {
                     key: self.key.clone(),
                     reason: format!(
                         "'{s}' is not one of: {}",
-                        options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join(", ")
+                        options
+                            .iter()
+                            .map(|o| o.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 }),
                 None => wrong("one of the listed options"),
@@ -244,7 +255,9 @@ pub enum Generator {
     /// Packages using this bake only inside the studio, where a JavaScript runtime
     /// exists. Nothing in the standard library needs it, and anything that can be
     /// declarative should be.
-    Script { entry: String },
+    Script {
+        entry: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -421,8 +434,14 @@ mod tests {
             label: "Axis".into(),
             kind: ParamKind::Select {
                 options: vec![
-                    SelectOption { value: "x".into(), label: "Horizontal".into() },
-                    SelectOption { value: "y".into(), label: "Vertical".into() },
+                    SelectOption {
+                        value: "x".into(),
+                        label: "Horizontal".into(),
+                    },
+                    SelectOption {
+                        value: "y".into(),
+                        label: "Vertical".into(),
+                    },
                 ],
             },
             default: json!("y"),
@@ -443,7 +462,9 @@ mod tests {
             description: String::new(),
         };
         assert!(p.validate(&json!("easeInOut")).is_ok());
-        assert!(p.validate(&json!({ "cubicBezier": [0.2, 0.0, 0.1, 1.0] })).is_ok());
+        assert!(p
+            .validate(&json!({ "cubicBezier": [0.2, 0.0, 0.1, 1.0] }))
+            .is_ok());
         assert!(p.validate(&json!("bouncy")).is_err());
     }
 
@@ -523,7 +544,11 @@ mod tests {
 
     #[test]
     fn applies_to_filters_by_node_kind() {
-        let a = AppliesTo { min_targets: 1, max_targets: None, kinds: vec!["path".into()] };
+        let a = AppliesTo {
+            min_targets: 1,
+            max_targets: None,
+            kinds: vec!["path".into()],
+        };
         assert!(a.accepts_kind("path"));
         assert!(!a.accepts_kind("text"));
         assert!(AppliesTo::default().accepts_kind("text"));

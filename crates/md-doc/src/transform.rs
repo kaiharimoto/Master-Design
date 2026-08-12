@@ -125,7 +125,12 @@ impl Transform {
         // Remove the rotation and x-scale, and whatever shear is left shows up as the
         // second basis vector leaning away from perpendicular.
         let shear = a * c + b * d;
-        let scale_y_sq = c * c + d * d - (if scale_x > 0.0 { shear * shear / (scale_x * scale_x) } else { 0.0 });
+        let scale_y_sq = c * c + d * d
+            - (if scale_x > 0.0 {
+                shear * shear / (scale_x * scale_x)
+            } else {
+                0.0
+            });
         let scale_y = scale_y_sq.max(0.0).sqrt();
         let skew_x = if scale_x > 0.0 && scale_y > 0.0 {
             (shear / (scale_x * scale_y)).asin()
@@ -134,9 +139,20 @@ impl Transform {
         };
 
         // A mirrored matrix has a negative determinant; report it on the y scale.
-        let scale_y = if self.determinant() < 0.0 { -scale_y } else { scale_y };
+        let scale_y = if self.determinant() < 0.0 {
+            -scale_y
+        } else {
+            scale_y
+        };
 
-        Decomposed { x: e, y: f, rotation, scale_x, scale_y, skew_x }
+        Decomposed {
+            x: e,
+            y: f,
+            rotation,
+            scale_x,
+            scale_y,
+            skew_x,
+        }
     }
 
     pub fn from_decomposed(d: &Decomposed) -> Transform {
@@ -217,9 +233,15 @@ mod tests {
             skew_x: 0.0,
         };
         let d = Transform::from_decomposed(&original).decompose();
-        assert!(close(d.x, 12.0) && close(d.y, -4.0), "translation drifted: {d:?}");
+        assert!(
+            close(d.x, 12.0) && close(d.y, -4.0),
+            "translation drifted: {d:?}"
+        );
         assert!(close(d.rotation, FRAC_PI_4), "rotation drifted: {d:?}");
-        assert!(close(d.scale_x, 2.0) && close(d.scale_y, 3.0), "scale drifted: {d:?}");
+        assert!(
+            close(d.scale_x, 2.0) && close(d.scale_y, 3.0),
+            "scale drifted: {d:?}"
+        );
     }
 
     #[test]

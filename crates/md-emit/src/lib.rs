@@ -54,7 +54,11 @@ pub struct ExportOptions {
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { accessibility_outline: true, assets_from: None, only_page: None }
+        ExportOptions {
+            accessibility_outline: true,
+            assets_from: None,
+            only_page: None,
+        }
     }
 }
 
@@ -75,7 +79,7 @@ pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String
     let compiled = anim::compile(doc, page);
 
     let mut writer = svg::SvgWriter::new(&compiled.dashed, &compiled.animated);
-    let markup = writer.page(doc, page);
+    let markup = writer.page(page);
 
     let mut warnings = compiled.warnings.clone();
     warnings.extend(writer.warnings.clone());
@@ -114,9 +118,9 @@ pub fn export(doc: &Document, out_dir: &Path, opts: &ExportOptions) -> Result<Ex
         }
 
         let (html, warnings) = render_page(doc, page, opts);
-        report.warnings.extend(
-            warnings.into_iter().map(|w| format!("{}: {w}", page.name)),
-        );
+        report
+            .warnings
+            .extend(warnings.into_iter().map(|w| format!("{}: {w}", page.name)));
 
         let path = out_dir.join(page.output_file());
         if let Some(parent) = path.parent() {
@@ -134,9 +138,9 @@ pub fn export(doc: &Document, out_dir: &Path, opts: &ExportOptions) -> Result<Ex
     }
 
     if report.files.is_empty() {
-        report.warnings.push(
-            "nothing was exported — check that the requested page exists".to_string(),
-        );
+        report
+            .warnings
+            .push("nothing was exported — check that the requested page exists".to_string());
     }
 
     Ok(report)
@@ -185,7 +189,10 @@ mod tests {
         )
         .with_role("hero-title")
         .with_fill(Paint::solid("#ffffff").unwrap());
-        heading.a11y = Some(A11y { heading_level: Some(1), ..Default::default() });
+        heading.a11y = Some(A11y {
+            heading_level: Some(1),
+            ..Default::default()
+        });
         heading.transform = Transform::translate(120.0, 200.0);
 
         let card = Node::new(
@@ -206,7 +213,9 @@ mod tests {
                 fill_rule: Default::default(),
             }),
         );
-        squiggle.strokes.push(Stroke::new(Paint::solid("#ff0055").unwrap(), 4.0));
+        squiggle
+            .strokes
+            .push(Stroke::new(Paint::solid("#ff0055").unwrap(), 4.0));
 
         d.pages[0].root.children.push(heading);
         d.pages[0].root.children.push(card);
@@ -218,7 +227,10 @@ mod tests {
         d.pages[0].timelines.push(Timeline {
             id: TimelineId::from_static("tl_in"),
             name: "Cards in".into(),
-            trigger: Trigger::View { threshold: 0.2, once: true },
+            trigger: Trigger::View {
+                threshold: 0.2,
+                once: true,
+            },
             duration: 0.6,
             enabled: true,
             reduced_motion: Default::default(),
@@ -228,16 +240,32 @@ mod tests {
                     target: NodeId::from_static("nd_card"),
                     property: "opacity".into(),
                     keyframes: vec![
-                        Keyframe { t: 0.0, value: json!(0), easing: md_doc::Easing::EaseOut },
-                        Keyframe { t: 1.0, value: json!(1), easing: md_doc::Easing::Linear },
+                        Keyframe {
+                            t: 0.0,
+                            value: json!(0),
+                            easing: md_doc::Easing::EaseOut,
+                        },
+                        Keyframe {
+                            t: 1.0,
+                            value: json!(1),
+                            easing: md_doc::Easing::Linear,
+                        },
                     ],
                 },
                 Track {
                     target: NodeId::from_static("nd_card"),
                     property: "translateY".into(),
                     keyframes: vec![
-                        Keyframe { t: 0.0, value: json!(32), easing: md_doc::Easing::EaseOut },
-                        Keyframe { t: 1.0, value: json!(0), easing: md_doc::Easing::Linear },
+                        Keyframe {
+                            t: 0.0,
+                            value: json!(32),
+                            easing: md_doc::Easing::EaseOut,
+                        },
+                        Keyframe {
+                            t: 1.0,
+                            value: json!(0),
+                            easing: md_doc::Easing::Linear,
+                        },
                     ],
                 },
             ],
@@ -269,7 +297,10 @@ mod tests {
         let html = render(&doc());
         // The card is a 320×200 rounded rect; it should appear as real path geometry,
         // starting where the left edge meets the top-left corner arc.
-        assert!(html.contains("<path d=\"M 0 12 C"), "rounded rect was not baked: {html}");
+        assert!(
+            html.contains("<path d=\"M 0 12 C"),
+            "rounded rect was not baked: {html}"
+        );
     }
 
     #[test]
@@ -282,22 +313,34 @@ mod tests {
     #[test]
     fn the_page_background_reaches_both_the_svg_and_the_body() {
         let html = render(&doc());
-        assert!(html.contains("background:#0b1020"), "body background missing: {html}");
+        assert!(
+            html.contains("background:#0b1020"),
+            "body background missing: {html}"
+        );
         assert!(html.contains("fill=\"#0b1020\""), "svg background missing");
     }
 
     #[test]
     fn a_page_with_no_animation_ships_no_runtime() {
         let html = render(&doc());
-        assert!(!html.contains("md-animations"), "unused runtime payload was emitted");
-        assert!(!html.contains("master-design"), "unused runtime was emitted");
+        assert!(
+            !html.contains("md-animations"),
+            "unused runtime payload was emitted"
+        );
+        assert!(
+            !html.contains("master-design"),
+            "unused runtime was emitted"
+        );
     }
 
     #[test]
     fn an_animated_page_ships_the_runtime_and_its_payload() {
         let html = render(&with_timeline(doc()));
         assert!(html.contains("id=\"md-animations\""), "got {html}");
-        assert!(html.contains("[data-md-fx=\\\"nd_card\\\"]"), "selector missing: {html}");
+        assert!(
+            html.contains("[data-md-fx=\\\"nd_card\\\"]"),
+            "selector missing: {html}"
+        );
     }
 
     #[test]
@@ -306,7 +349,10 @@ mod tests {
         // matrix and move it to the origin.
         let html = render(&with_timeline(doc()));
         assert!(html.contains("data-md-fx=\"nd_card\""), "got {html}");
-        assert!(!html.contains("data-md-fx=\"nd_title\""), "only animated nodes need a wrapper");
+        assert!(
+            !html.contains("data-md-fx=\"nd_title\""),
+            "only animated nodes need a wrapper"
+        );
     }
 
     #[test]
@@ -352,8 +398,16 @@ mod tests {
                 target: NodeId::from_static("nd_line"),
                 property: "strokeDashoffset".into(),
                 keyframes: vec![
-                    Keyframe { t: 0.0, value: json!(250), easing: md_doc::Easing::Linear },
-                    Keyframe { t: 1.0, value: json!(0), easing: md_doc::Easing::Linear },
+                    Keyframe {
+                        t: 0.0,
+                        value: json!(250),
+                        easing: md_doc::Easing::Linear,
+                    },
+                    Keyframe {
+                        t: 1.0,
+                        value: json!(0),
+                        easing: md_doc::Easing::Linear,
+                    },
                 ],
             }],
         });
@@ -380,8 +434,16 @@ mod tests {
             target: NodeId::from_static("nd_card"),
             property: "wobbliness".into(),
             keyframes: vec![
-                Keyframe { t: 0.0, value: json!(0), easing: md_doc::Easing::Linear },
-                Keyframe { t: 1.0, value: json!(1), easing: md_doc::Easing::Linear },
+                Keyframe {
+                    t: 0.0,
+                    value: json!(0),
+                    easing: md_doc::Easing::Linear,
+                },
+                Keyframe {
+                    t: 1.0,
+                    value: json!(1),
+                    easing: md_doc::Easing::Linear,
+                },
             ],
         });
 
@@ -397,13 +459,19 @@ mod tests {
         let html = render(&doc());
         assert!(html.contains("class=\"md-a11y\""), "got {html}");
         assert!(html.contains("<h1>Design in motion</h1>"));
-        assert!(html.contains("aria-hidden=\"true\""), "the artwork should not be read twice");
+        assert!(
+            html.contains("aria-hidden=\"true\""),
+            "the artwork should not be read twice"
+        );
     }
 
     #[test]
     fn the_outline_can_be_turned_off() {
         let d = doc();
-        let opts = ExportOptions { accessibility_outline: false, ..Default::default() };
+        let opts = ExportOptions {
+            accessibility_outline: false,
+            ..Default::default()
+        };
         let (html, _) = render_page(&d, &d.pages[0], &opts);
         // The stylesheet still defines the class; what must be gone is the element.
         assert!(!html.contains("class=\"md-a11y\""), "got {html}");

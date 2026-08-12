@@ -47,7 +47,10 @@ pub struct Server {
 
 impl Server {
     /// Open a project directory.
-    pub fn open(project_dir: impl AsRef<Path>, standard_animations: Option<&Path>) -> Result<Self, String> {
+    pub fn open(
+        project_dir: impl AsRef<Path>,
+        standard_animations: Option<&Path>,
+    ) -> Result<Self, String> {
         let dir = project_dir.as_ref().to_path_buf();
         let doc = storage::load_project(&dir).map_err(|e| e.to_string())?;
 
@@ -57,7 +60,12 @@ impl Server {
         }
         registry.load_dir(&dir.join(storage::ANIMATIONS_DIR), Origin::Project);
 
-        Ok(Server { project_dir: dir, session: Session::new(doc), registry, autosave: true })
+        Ok(Server {
+            project_dir: dir,
+            session: Session::new(doc),
+            registry,
+            autosave: true,
+        })
     }
 
     /// Build a server over an in-memory document, for tests.
@@ -193,9 +201,7 @@ impl Server {
             "selection_get" => self.selection_get(),
             "requests_list" => self.requests_list(&args),
             "requests_resolve" => self.requests_resolve(&args),
-            other => {
-                return Err((codes::METHOD_NOT_FOUND, format!("no tool named '{other}'")))
-            }
+            other => return Err((codes::METHOD_NOT_FOUND, format!("no tool named '{other}'"))),
         };
 
         Ok(result.to_value())
@@ -245,8 +251,10 @@ impl Server {
             ));
         }
 
-        let with_properties =
-            args.get("properties").and_then(|v| v.as_bool()).unwrap_or(true);
+        let with_properties = args
+            .get("properties")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         if !with_properties {
             let list: Vec<&str> = ids.iter().map(|i| i.as_str()).collect();
@@ -304,7 +312,11 @@ impl Server {
                     "Applied {} operation(s) as \"{}\". Touched: {}",
                     report.applied,
                     label,
-                    if touched.is_empty() { "nothing".to_string() } else { touched.join(", ") }
+                    if touched.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        touched.join(", ")
+                    }
                 );
                 for w in &report.warnings {
                     text.push_str(&format!("\nWarning: {w}"));
@@ -326,7 +338,12 @@ impl Server {
             .get("page")
             .and_then(|v| v.as_str())
             .map(String::from)
-            .unwrap_or_else(|| doc.pages.first().map(|p| p.slug.clone()).unwrap_or_default());
+            .unwrap_or_else(|| {
+                doc.pages
+                    .first()
+                    .map(|p| p.slug.clone())
+                    .unwrap_or_default()
+            });
 
         let node = match args.get("node").and_then(|v| v.as_str()) {
             Some(s) => match NodeId::parse(s) {
@@ -423,11 +440,22 @@ impl Server {
                             (Some(lo), Some(hi)) => format!(" [{lo}..{hi}]"),
                             _ => String::new(),
                         };
-                        format!("number{range}{}", if unit.is_empty() { String::new() } else { format!(" {unit}") })
+                        format!(
+                            "number{range}{}",
+                            if unit.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" {unit}")
+                            }
+                        )
                     }
                     md_anim::ParamKind::Select { options } => format!(
                         "one of {}",
-                        options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join("|")
+                        options
+                            .iter()
+                            .map(|o| o.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join("|")
                     ),
                     other => format!("{other:?}").to_lowercase(),
                 };
@@ -463,7 +491,12 @@ impl Server {
             .get("page")
             .and_then(|v| v.as_str())
             .map(String::from)
-            .unwrap_or_else(|| doc.pages.first().map(|p| p.slug.clone()).unwrap_or_default());
+            .unwrap_or_else(|| {
+                doc.pages
+                    .first()
+                    .map(|p| p.slug.clone())
+                    .unwrap_or_default()
+            });
 
         let params = args
             .get("params")
@@ -499,7 +532,10 @@ impl Server {
 
         match self.session.apply(
             format!("Apply {package}"),
-            vec![Op::TimelineSet { page: page_key, timeline: Box::new(timeline) }],
+            vec![Op::TimelineSet {
+                page: page_key,
+                timeline: Box::new(timeline),
+            }],
         ) {
             Ok(_) => {
                 if let Err(e) = self.save() {
@@ -575,7 +611,9 @@ impl Server {
             }
         }
         if let Some(annotation) = &selection.annotation {
-            text.push_str(&format!("They drew on the canvas; the markup is at {annotation}\n"));
+            text.push_str(&format!(
+                "They drew on the canvas; the markup is at {annotation}\n"
+            ));
         }
         if let Some(v) = selection.viewport {
             text.push_str(&format!(
@@ -591,8 +629,10 @@ impl Server {
     }
 
     fn requests_list(&self, args: &Value) -> ToolResult {
-        let include_resolved =
-            args.get("includeResolved").and_then(|v| v.as_bool()).unwrap_or(false);
+        let include_resolved = args
+            .get("includeResolved")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let requests = match storage::load_requests(&self.project_dir) {
             Ok(r) => r,
@@ -630,7 +670,11 @@ impl Server {
             Some(s) => s,
             None => return ToolResult::error("id is required"),
         };
-        let status = match args.get("status").and_then(|v| v.as_str()).unwrap_or("done") {
+        let status = match args
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("done")
+        {
             "dismissed" => RequestStatus::Dismissed,
             _ => RequestStatus::Done,
         };
@@ -656,7 +700,6 @@ impl Server {
         if !self.autosave {
             return Ok(());
         }
-        storage::save_project(&self.project_dir, self.session.document())
-            .map_err(|e| e.to_string())
+        storage::save_project(&self.project_dir, self.session.document()).map_err(|e| e.to_string())
     }
 }

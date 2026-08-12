@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the studio's window is allowed to do. Deliberately narrow: the frontend reaches everything else through named commands in lib.rs, which are easier to reason about than a broad filesystem grant.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    {
+      "identifier": "dialog:allow-open",
+      "comment": "Choosing a project directory. Note there is no filesystem permission here at all — the backend reads and writes projects itself, so the webview never gets a general file-access grant it could be tricked into using."
+    },
+    "dialog:allow-save",
+    "dialog:allow-message",
+    {
+      "identifier": "opener:allow-open-url",
+      "comment": "Opening a GitHub release page when an update cannot be applied in place."
+    },
+    "opener:allow-open-path"
+  ]
+}

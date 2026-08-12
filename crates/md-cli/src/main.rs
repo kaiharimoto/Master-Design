@@ -166,27 +166,65 @@ fn run() -> Result<()> {
     let std_animations = paths::standard_animations(cli.animations.as_deref());
 
     match cli.command {
-        Command::New { path, name, width, height } => cmd_new(path, name, width, height),
-        Command::Describe { project, page, max_depth } => {
+        Command::New {
+            path,
+            name,
+            width,
+            height,
+        } => cmd_new(path, name, width, height),
+        Command::Describe {
+            project,
+            page,
+            max_depth,
+        } => {
             let doc = load(&project)?;
-            print!("{}", digest(&doc, &DigestOptions { page, max_depth, ..Default::default() }));
+            print!(
+                "{}",
+                digest(
+                    &doc,
+                    &DigestOptions {
+                        page,
+                        max_depth,
+                        ..Default::default()
+                    }
+                )
+            );
             Ok(())
         }
-        Command::Query { project, selector, page, full } => {
-            cmd_query(&project, &selector, page.as_deref(), full)
-        }
-        Command::Patch { project, ops, label } => cmd_patch(&project, &ops, &label),
+        Command::Query {
+            project,
+            selector,
+            page,
+            full,
+        } => cmd_query(&project, &selector, page.as_deref(), full),
+        Command::Patch {
+            project,
+            ops,
+            label,
+        } => cmd_patch(&project, &ops, &label),
         Command::Export { project, out, page } => cmd_export(&project, out, page),
-        Command::Snapshot { project, out, page, node, time, width } => {
-            cmd_snapshot(&project, out, page, node, time, width)
-        }
+        Command::Snapshot {
+            project,
+            out,
+            page,
+            node,
+            time,
+            width,
+        } => cmd_snapshot(&project, out, page, node, time, width),
         Command::Anim(AnimCommand::List { query }) => cmd_anim_list(std_animations, query),
-        Command::Anim(AnimCommand::Apply { project, package, selector, params, page }) => {
-            cmd_anim_apply(&project, std_animations, &package, &selector, params, page)
-        }
-        Command::Request { project, note, page, nodes } => {
-            cmd_request(&project, note, page, nodes)
-        }
+        Command::Anim(AnimCommand::Apply {
+            project,
+            package,
+            selector,
+            params,
+            page,
+        }) => cmd_anim_apply(&project, std_animations, &package, &selector, params, page),
+        Command::Request {
+            project,
+            note,
+            page,
+            nodes,
+        } => cmd_request(&project, note, page, nodes),
         Command::Mcp { project, read_only } => cmd_mcp(&project, std_animations, read_only),
     }
 }
@@ -291,7 +329,11 @@ fn cmd_patch(project: &std::path::Path, ops_path: &std::path::Path, label: &str)
     let array = match value {
         serde_json::Value::Array(a) => serde_json::Value::Array(a),
         serde_json::Value::Object(ref o) if o.contains_key("ops") => o["ops"].clone(),
-        _ => return Err(anyhow!("expected an array of operations, or an object with an 'ops' key")),
+        _ => {
+            return Err(anyhow!(
+                "expected an array of operations, or an object with an 'ops' key"
+            ))
+        }
     };
 
     let ops: Vec<Op> = serde_json::from_value(array).context("reading operations")?;
@@ -310,11 +352,7 @@ fn cmd_patch(project: &std::path::Path, ops_path: &std::path::Path, label: &str)
     Ok(())
 }
 
-fn cmd_export(
-    project: &std::path::Path,
-    out: Option<PathBuf>,
-    page: Option<String>,
-) -> Result<()> {
+fn cmd_export(project: &std::path::Path, out: Option<PathBuf>, page: Option<String>) -> Result<()> {
     let root = paths::project_root(project)?;
     let doc = storage::load_project(&root)?;
     let out = out.unwrap_or_else(|| root.join("dist"));
@@ -348,7 +386,10 @@ fn cmd_snapshot(
 ) -> Result<()> {
     let doc = load(project)?;
     let page_key = page.unwrap_or_else(|| {
-        doc.pages.first().map(|p| p.slug.clone()).unwrap_or_default()
+        doc.pages
+            .first()
+            .map(|p| p.slug.clone())
+            .unwrap_or_default()
     });
 
     let opts = md_mcp::render::SnapshotOptions {
@@ -371,9 +412,7 @@ fn cmd_anim_list(std_animations: Option<PathBuf>, query: Option<String>) -> Resu
 
     if packages.is_empty() {
         println!("No animation packages found.");
-        println!(
-            "Point --animations at a directory of packages, or set MD_ANIMATIONS."
-        );
+        println!("Point --animations at a directory of packages, or set MD_ANIMATIONS.");
         return Ok(());
     }
 
@@ -417,7 +456,10 @@ fn cmd_anim_apply(
     };
 
     let page_key = page.unwrap_or_else(|| {
-        doc.pages.first().map(|p| p.slug.clone()).unwrap_or_default()
+        doc.pages
+            .first()
+            .map(|p| p.slug.clone())
+            .unwrap_or_default()
     });
 
     let timeline =
@@ -429,7 +471,10 @@ fn cmd_anim_apply(
     let mut session = Session::new(doc);
     session.apply(
         format!("Apply {package}"),
-        vec![Op::TimelineSet { page: page_key.clone(), timeline: Box::new(timeline) }],
+        vec![Op::TimelineSet {
+            page: page_key.clone(),
+            timeline: Box::new(timeline),
+        }],
     )?;
     storage::save_project(&root, session.document())?;
 
@@ -449,8 +494,10 @@ fn cmd_request(
     let root = paths::project_root(project)?;
     let doc = storage::load_project(&root)?;
 
-    let ids: Result<Vec<NodeId>> =
-        nodes.iter().map(|n| NodeId::parse(n).map_err(Into::into)).collect();
+    let ids: Result<Vec<NodeId>> = nodes
+        .iter()
+        .map(|n| NodeId::parse(n).map_err(Into::into))
+        .collect();
 
     let created = storage::now_millis();
     let request = Request {
@@ -458,7 +505,10 @@ fn cmd_request(
         created_at: created,
         note,
         page: page.unwrap_or_else(|| {
-            doc.pages.first().map(|p| p.slug.clone()).unwrap_or_default()
+            doc.pages
+                .first()
+                .map(|p| p.slug.clone())
+                .unwrap_or_default()
         }),
         selection: ids?,
         annotation: None,
@@ -476,8 +526,8 @@ fn cmd_mcp(
     read_only: bool,
 ) -> Result<()> {
     let root = paths::project_root(project)?;
-    let mut server = md_mcp::Server::open(&root, std_animations.as_deref())
-        .map_err(|e| anyhow!("{e}"))?;
+    let mut server =
+        md_mcp::Server::open(&root, std_animations.as_deref()).map_err(|e| anyhow!("{e}"))?;
     server.autosave = !read_only;
 
     // Anything printed to stdout would be read as a protocol message, so status goes to
@@ -501,7 +551,10 @@ fn registry(
         reg.load_dir(dir, md_anim::Origin::Standard);
     }
     if let Some(root) = project {
-        reg.load_dir(&root.join(storage::ANIMATIONS_DIR), md_anim::Origin::Project);
+        reg.load_dir(
+            &root.join(storage::ANIMATIONS_DIR),
+            md_anim::Origin::Project,
+        );
     }
     for problem in &reg.problems {
         eprintln!("warning: {problem}");

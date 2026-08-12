@@ -118,8 +118,7 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "doc_redo",
-            description:
-                "Reapply the last undone change. Note that any new edit — yours or the \
+            description: "Reapply the last undone change. Note that any new edit — yours or the \
                  person's — discards the redo branch, so this only works if nothing has \
                  happened since the undo.",
             input_schema: schema(json!({}), &[]),
@@ -143,8 +142,7 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "anim_apply",
-            description:
-                "Apply an animation package to the nodes a selector matches, and add the \
+            description: "Apply an animation package to the nodes a selector matches, and add the \
                  resulting timeline to the page. Prefer a role selector like '@card' over a \
                  list of ids: the timeline records the selector, so it picks up nodes added \
                  later. Stagger follows document order.",

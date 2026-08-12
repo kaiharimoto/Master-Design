@@ -99,8 +99,9 @@ impl Selector {
 
     /// Matches within a single page.
     pub fn select_in_page(&self, doc: &Document, page_key: &str) -> Result<Vec<NodeId>> {
-        let page =
-            doc.page(page_key).ok_or_else(|| DocError::PageNotFound(page_key.to_string()))?;
+        let page = doc
+            .page(page_key)
+            .ok_or_else(|| DocError::PageNotFound(page_key.to_string()))?;
         let mut out = Vec::new();
         self.collect(&page.root, &mut Vec::new(), &mut out);
         Ok(out)
@@ -108,7 +109,9 @@ impl Selector {
 
     /// Does this node match, given its ancestors (outermost first)?
     pub fn matches(&self, node: &Node, ancestors: &[&Node]) -> bool {
-        self.groups.iter().any(|g| group_matches(g, node, ancestors))
+        self.groups
+            .iter()
+            .any(|g| group_matches(g, node, ancestors))
     }
 
     fn collect<'a>(&self, node: &'a Node, ancestors: &mut Vec<&'a Node>, out: &mut Vec<NodeId>) {
@@ -291,7 +294,10 @@ fn split_top_level(s: &str, sep: char) -> Vec<String> {
 }
 
 fn bad(selector: &str, reason: &str) -> DocError {
-    DocError::InvalidSelector { selector: selector.to_string(), reason: reason.to_string() }
+    DocError::InvalidSelector {
+        selector: selector.to_string(),
+        reason: reason.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -303,7 +309,11 @@ mod tests {
     fn rect(id: &'static str) -> Node {
         Node::new(
             NodeId::from_static(id),
-            NodeKind::Rect(RectGeometry { width: 10.0, height: 10.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 10.0,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
         )
     }
 
@@ -321,7 +331,9 @@ mod tests {
         .with_role("card-title")
         .with_name("Title");
 
-        let card_a = rect("nd_card_a").with_role("card").with_children(vec![title]);
+        let card_a = rect("nd_card_a")
+            .with_role("card")
+            .with_children(vec![title]);
         let card_b = rect("nd_card_b").with_role("card").with_role("featured");
 
         let section = Node::new(NodeId::from_static("nd_section"), NodeKind::Group)

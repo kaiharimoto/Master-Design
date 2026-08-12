@@ -93,8 +93,16 @@ fn apply(node: &mut md_doc::Node, props: &BTreeMap<String, Value>) {
     if let Some(Value::String(color)) = props.get(properties::FILL) {
         if let Ok(c) = md_doc::Color::parse(color) {
             match node.fills.first_mut() {
-                Some(md_doc::Paint::Solid { color: existing, .. }) => *existing = c,
-                _ => node.fills.insert(0, md_doc::Paint::Solid { color: c, opacity: 1.0 }),
+                Some(md_doc::Paint::Solid {
+                    color: existing, ..
+                }) => *existing = c,
+                _ => node.fills.insert(
+                    0,
+                    md_doc::Paint::Solid {
+                        color: c,
+                        opacity: 1.0,
+                    },
+                ),
             }
         }
     }
@@ -102,7 +110,10 @@ fn apply(node: &mut md_doc::Node, props: &BTreeMap<String, Value>) {
     if let Some(Value::String(color)) = props.get(properties::STROKE) {
         if let Ok(c) = md_doc::Color::parse(color) {
             if let Some(stroke) = node.strokes.first_mut() {
-                stroke.paint = md_doc::Paint::Solid { color: c, opacity: 1.0 };
+                stroke.paint = md_doc::Paint::Solid {
+                    color: c,
+                    opacity: 1.0,
+                };
             }
         }
     }
@@ -115,8 +126,9 @@ fn apply(node: &mut md_doc::Node, props: &BTreeMap<String, Value>) {
 
     if let Some(offset) = num(properties::STROKE_DASHOFFSET) {
         // Measured before the mutable borrow below, since it reads the same node.
-        let path_length =
-            node.geometry_path().and_then(|d| md_geom::path_length(&d).ok());
+        let path_length = node
+            .geometry_path()
+            .and_then(|d| md_geom::path_length(&d).ok());
         if let Some(stroke) = node.strokes.first_mut() {
             // A draw-on animation needs a dash pattern as long as the path to offset
             // against; without one the stroke renders solid at every time.
@@ -149,7 +161,11 @@ mod tests {
         d.pages[0].root.id = NodeId::from_static("nd_root");
         d.pages[0].root.children.push(Node::new(
             NodeId::from_static("nd_card"),
-            NodeKind::Rect(RectGeometry { width: 100.0, height: 100.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 100.0,
+                height: 100.0,
+                corner_radius: [0.0; 4],
+            }),
         ));
         d.pages[0].timelines.push(Timeline {
             id: TimelineId::from_static("tl_in"),
@@ -164,16 +180,32 @@ mod tests {
                     target: NodeId::from_static("nd_card"),
                     property: "opacity".into(),
                     keyframes: vec![
-                        Keyframe { t: 0.0, value: json!(0), easing: Easing::Linear },
-                        Keyframe { t: 1.0, value: json!(1), easing: Easing::Linear },
+                        Keyframe {
+                            t: 0.0,
+                            value: json!(0),
+                            easing: Easing::Linear,
+                        },
+                        Keyframe {
+                            t: 1.0,
+                            value: json!(1),
+                            easing: Easing::Linear,
+                        },
                     ],
                 },
                 Track {
                     target: NodeId::from_static("nd_card"),
                     property: "translateY".into(),
                     keyframes: vec![
-                        Keyframe { t: 0.0, value: json!(100), easing: Easing::Linear },
-                        Keyframe { t: 1.0, value: json!(0), easing: Easing::Linear },
+                        Keyframe {
+                            t: 0.0,
+                            value: json!(100),
+                            easing: Easing::Linear,
+                        },
+                        Keyframe {
+                            t: 1.0,
+                            value: json!(0),
+                            easing: Easing::Linear,
+                        },
                     ],
                 },
             ],
@@ -214,7 +246,10 @@ mod tests {
         let mut d = doc();
         d.node_mut(&NodeId::from_static("nd_card")).unwrap().opacity = 0.5;
         let frame = at_time(&d, "index", 1.0);
-        assert!((card(&frame).opacity - 0.5).abs() < 1e-9, "an animation should not undo a design");
+        assert!(
+            (card(&frame).opacity - 0.5).abs() < 1e-9,
+            "an animation should not undo a design"
+        );
     }
 
     #[test]

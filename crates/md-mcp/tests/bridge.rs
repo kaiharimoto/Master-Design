@@ -84,10 +84,15 @@ fn rpc(server: &mut Server, method: &str, params: Value) -> Value {
 
 /// Call a tool and return its text content, asserting it did not report an error.
 fn call(server: &mut Server, tool: &str, args: Value) -> String {
-    let result = rpc(server, "tools/call", json!({ "name": tool, "arguments": args }));
+    let result = rpc(
+        server,
+        "tools/call",
+        json!({ "name": tool, "arguments": args }),
+    );
     let text = text_of(&result);
     assert_eq!(
-        result["isError"], json!(false),
+        result["isError"],
+        json!(false),
         "{tool} reported an error: {text}"
     );
     text
@@ -95,8 +100,16 @@ fn call(server: &mut Server, tool: &str, args: Value) -> String {
 
 /// Call a tool expecting it to refuse, and return the reason.
 fn call_expecting_error(server: &mut Server, tool: &str, args: Value) -> String {
-    let result = rpc(server, "tools/call", json!({ "name": tool, "arguments": args }));
-    assert_eq!(result["isError"], json!(true), "{tool} unexpectedly succeeded");
+    let result = rpc(
+        server,
+        "tools/call",
+        json!({ "name": tool, "arguments": args }),
+    );
+    assert_eq!(
+        result["isError"],
+        json!(true),
+        "{tool} unexpectedly succeeded"
+    );
     text_of(&result)
 }
 
@@ -120,7 +133,11 @@ fn text_of(result: &Value) -> String {
 #[test]
 fn the_handshake_advertises_the_server_and_briefs_the_model() {
     let mut s = server("handshake");
-    let result = rpc(&mut s, "initialize", json!({ "protocolVersion": "2024-11-05" }));
+    let result = rpc(
+        &mut s,
+        "initialize",
+        json!({ "protocolVersion": "2024-11-05" }),
+    );
 
     assert_eq!(result["serverInfo"]["name"], "master-design");
     assert!(result["capabilities"]["tools"].is_object());
@@ -129,14 +146,21 @@ fn the_handshake_advertises_the_server_and_briefs_the_model() {
     // and the roles it can address.
     let instructions = result["instructions"].as_str().unwrap();
     assert!(instructions.contains("Bridge test"), "got {instructions}");
-    assert!(instructions.contains("@card"), "roles should be listed: {instructions}");
+    assert!(
+        instructions.contains("@card"),
+        "roles should be listed: {instructions}"
+    );
     assert!(instructions.contains("doc_snapshot"), "got {instructions}");
 }
 
 #[test]
 fn a_newer_protocol_revision_is_accepted_rather_than_refused() {
     let mut s = server("version");
-    let result = rpc(&mut s, "initialize", json!({ "protocolVersion": "2025-06-18" }));
+    let result = rpc(
+        &mut s,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18" }),
+    );
     assert_eq!(result["protocolVersion"], "2025-06-18");
 }
 
@@ -209,7 +233,10 @@ fn a_selector_that_matches_nothing_says_what_to_do_next() {
     let mut s = server("nomatch");
     let text = call(&mut s, "doc_query", json!({ "selector": "@nonexistent" }));
     assert!(text.contains("matched nothing"), "got {text}");
-    assert!(text.contains("doc_describe"), "should point somewhere useful: {text}");
+    assert!(
+        text.contains("doc_describe"),
+        "should point somewhere useful: {text}"
+    );
 }
 
 #[test]
@@ -238,11 +265,16 @@ fn a_patch_applies_and_is_written_to_disk() {
     );
 
     assert!(text.contains("Applied 1 operation"), "got {text}");
-    assert!(text.contains("doc_snapshot"), "the model should be told to look: {text}");
+    assert!(
+        text.contains("doc_snapshot"),
+        "the model should be told to look: {text}"
+    );
 
     // Autosave is what makes the change appear on the person's canvas.
     let on_disk = md_doc::storage::load_project(
-        &std::env::temp_dir().join("md-mcp-bridge").join(format!("patch-{}", std::process::id())),
+        &std::env::temp_dir()
+            .join("md-mcp-bridge")
+            .join(format!("patch-{}", std::process::id())),
     )
     .unwrap();
     let node = on_disk.node(&NodeId::from_static("nd_card0")).unwrap();
@@ -272,7 +304,9 @@ fn a_refused_patch_says_plainly_that_nothing_changed() {
 
     let node = s.document().node(&NodeId::from_static("nd_card0")).unwrap();
     match &node.fills[0] {
-        Paint::Solid { color, .. } => assert_eq!(color.as_str(), "#1e293b", "first op was left applied"),
+        Paint::Solid { color, .. } => {
+            assert_eq!(color.as_str(), "#1e293b", "first op was left applied")
+        }
         other => panic!("expected a solid fill, got {other:?}"),
     }
 }
@@ -281,7 +315,10 @@ fn a_refused_patch_says_plainly_that_nothing_changed() {
 fn malformed_operations_come_back_with_an_example() {
     let mut s = server("badops");
     let text = call_expecting_error(&mut s, "doc_patch", json!({ "ops": [{ "nope": 1 }] }));
-    assert!(text.contains("\"op\""), "the error should show the shape expected: {text}");
+    assert!(
+        text.contains("\"op\""),
+        "the error should show the shape expected: {text}"
+    );
 }
 
 #[test]
@@ -302,7 +339,10 @@ fn an_ai_edit_is_undoable() {
     assert_ne!(md_doc::to_canonical_string(s.document()).unwrap(), before);
 
     let text = call(&mut s, "doc_undo", json!({}));
-    assert!(text.contains("Widen a card"), "the undo should name the step: {text}");
+    assert!(
+        text.contains("Widen a card"),
+        "the undo should name the step: {text}"
+    );
     assert_eq!(
         md_doc::to_canonical_string(s.document()).unwrap(),
         before,
@@ -322,7 +362,10 @@ fn animations_list_with_their_parameters() {
     let mut s = server("animlist");
     let text = call(&mut s, "anim_list", json!({ "query": "stagger" }));
     assert!(text.contains("std/stagger-fade-up"), "got {text}");
-    assert!(text.contains("distance"), "parameters must be listed: {text}");
+    assert!(
+        text.contains("distance"),
+        "parameters must be listed: {text}"
+    );
     assert!(text.contains("[0..400]"), "ranges must be listed: {text}");
 }
 
@@ -339,13 +382,19 @@ fn applying_an_animation_adds_a_timeline_and_reports_what_it_did() {
         }),
     );
 
-    assert!(text.contains("6 track(s)"), "3 cards × 2 properties: {text}");
+    assert!(
+        text.contains("6 track(s)"),
+        "3 cards × 2 properties: {text}"
+    );
     assert!(text.contains("triggered on view"), "got {text}");
 
     let page = &s.document().pages[0];
     assert_eq!(page.timelines.len(), 1);
     let source = page.timelines[0].source.as_ref().unwrap();
-    assert_eq!(source.target, "@card", "the selector must be recorded for re-baking");
+    assert_eq!(
+        source.target, "@card",
+        "the selector must be recorded for re-baking"
+    );
     assert_eq!(source.version, "1.0.0", "the version must be pinned");
 }
 
@@ -389,13 +438,19 @@ fn png_of(result: &Value) -> Vec<u8> {
         .expect("no image in the result")["data"]
         .as_str()
         .unwrap();
-    base64::engine::general_purpose::STANDARD.decode(data).unwrap()
+    base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .unwrap()
 }
 
 #[test]
 fn a_snapshot_comes_back_as_a_real_png() {
     let mut s = server("snapshot");
-    let result = rpc(&mut s, "tools/call", json!({ "name": "doc_snapshot", "arguments": {} }));
+    let result = rpc(
+        &mut s,
+        "tools/call",
+        json!({ "name": "doc_snapshot", "arguments": {} }),
+    );
     assert_eq!(result["isError"], json!(false));
 
     let png = png_of(&result);
@@ -453,8 +508,7 @@ fn a_snapshot_can_be_cropped_to_one_node() {
 #[test]
 fn snapshotting_a_node_that_does_not_exist_is_refused() {
     let mut s = server("cropmissing");
-    let text =
-        call_expecting_error(&mut s, "doc_snapshot", json!({ "node": "nd_nowhere" }));
+    let text = call_expecting_error(&mut s, "doc_snapshot", json!({ "node": "nd_nowhere" }));
     assert!(text.contains("nd_nowhere"), "got {text}");
 }
 
@@ -473,14 +527,24 @@ fn export_writes_a_working_page() {
     let mut s = Server::with_document(&dir, doc, registry);
     s.autosave = true;
 
-    call(&mut s, "anim_apply", json!({ "package": "std/pop-in", "selector": "@card" }));
+    call(
+        &mut s,
+        "anim_apply",
+        json!({ "package": "std/pop-in", "selector": "@card" }),
+    );
     let text = call(&mut s, "export_build", json!({}));
     assert!(text.contains("Exported"), "got {text}");
 
     let html = std::fs::read_to_string(dir.join("dist/index.html")).unwrap();
     assert!(html.contains("<!doctype html>"));
-    assert!(html.contains("id=\"md-animations\""), "the runtime payload is missing");
-    assert!(html.contains("data-md-fx=\"nd_card0\""), "the animation target is missing");
+    assert!(
+        html.contains("id=\"md-animations\""),
+        "the runtime payload is missing"
+    );
+    assert!(
+        html.contains("data-md-fx=\"nd_card0\""),
+        "the animation target is missing"
+    );
 }
 
 #[test]
@@ -488,7 +552,10 @@ fn selection_is_empty_and_says_where_else_to_look_when_no_studio_is_running() {
     let mut s = server("noselection");
     let text = call(&mut s, "selection_get", json!({}));
     assert!(text.contains("Nothing is selected"), "got {text}");
-    assert!(text.contains("requests_list"), "should point at the async path: {text}");
+    assert!(
+        text.contains("requests_list"),
+        "should point at the async path: {text}"
+    );
 }
 
 #[test]
@@ -515,8 +582,14 @@ fn a_live_selection_tells_the_model_what_this_means() {
 
     assert!(text.contains("make this bounce"), "got {text}");
     assert!(text.contains("nd_card1"), "got {text}");
-    assert!(text.contains("scribble.png"), "the annotation should be surfaced: {text}");
-    assert!(text.contains("region"), "the viewport should be actionable: {text}");
+    assert!(
+        text.contains("scribble.png"),
+        "the annotation should be surfaced: {text}"
+    );
+    assert!(
+        text.contains("region"),
+        "the viewport should be actionable: {text}"
+    );
 }
 
 #[test]
@@ -547,7 +620,11 @@ fn queued_requests_survive_the_studio_being_closed() {
     assert!(text.contains("too static"), "got {text}");
     assert!(text.contains("nd_card0"), "got {text}");
 
-    call(&mut s, "requests_resolve", json!({ "id": "req_1", "status": "done" }));
+    call(
+        &mut s,
+        "requests_resolve",
+        json!({ "id": "req_1", "status": "done" }),
+    );
     let after = call(&mut s, "requests_list", json!({}));
     assert!(after.contains("No queued requests"), "got {after}");
 }
@@ -597,7 +674,8 @@ fn the_stdio_transport_handles_a_whole_conversation() {
 fn a_malformed_line_gets_a_parse_error_rather_than_a_crash() {
     let mut s = server("garbage");
     let mut output = Vec::new();
-    s.serve(std::io::Cursor::new("{ not json\n"), &mut output).unwrap();
+    s.serve(std::io::Cursor::new("{ not json\n"), &mut output)
+        .unwrap();
 
     let value: Value = serde_json::from_str(std::str::from_utf8(&output).unwrap()).unwrap();
     assert_eq!(value["error"]["code"], -32700);

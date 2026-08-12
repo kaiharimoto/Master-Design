@@ -76,12 +76,18 @@ pub fn compile(doc: &Document, page: &Page) -> CompiledAnimations {
                 ));
                 continue;
             }
-            by_target.entry(track.target.clone()).or_default().push(track);
+            by_target
+                .entry(track.target.clone())
+                .or_default()
+                .push(track);
         }
 
         for (target, tracks) in by_target {
             out.animated.insert(target.as_str().to_string());
-            if tracks.iter().any(|t| t.property == properties::STROKE_DASHOFFSET) {
+            if tracks
+                .iter()
+                .any(|t| t.property == properties::STROKE_DASHOFFSET)
+            {
                 out.dashed.insert(target.as_str().to_string());
             }
 
@@ -91,8 +97,9 @@ pub fn compile(doc: &Document, page: &Page) -> CompiledAnimations {
             // Transform components have to travel together — `transform` is one CSS
             // property, so emitting `translateY` and `scale` as separate animations
             // would have the last one silently replace the first.
-            let (transform_tracks, plain): (Vec<&Track>, Vec<&Track>) =
-                tracks.into_iter().partition(|t| properties::is_transform(&t.property));
+            let (transform_tracks, plain): (Vec<&Track>, Vec<&Track>) = tracks
+                .into_iter()
+                .partition(|t| properties::is_transform(&t.property));
 
             if !transform_tracks.is_empty() {
                 out.entries.push(AnimEntry {
@@ -133,10 +140,17 @@ fn reduced(r: ReducedMotion) -> &'static str {
 
 fn options_for(timeline: &Timeline) -> Value {
     let mut opts = Map::new();
-    opts.insert("duration".into(), json!((timeline.duration * 1000.0).round()));
+    opts.insert(
+        "duration".into(),
+        json!((timeline.duration * 1000.0).round()),
+    );
     opts.insert("fill".into(), json!("both"));
 
-    if let Trigger::Loop { iterations, alternate } = &timeline.trigger {
+    if let Trigger::Loop {
+        iterations,
+        alternate,
+    } = &timeline.trigger
+    {
         // JSON has no Infinity; the runtime turns this sentinel back into one.
         opts.insert(
             "iterations".into(),

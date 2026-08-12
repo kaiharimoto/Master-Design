@@ -299,7 +299,10 @@ fn generate_bezier(pts: &[Point], u: &[f64], left: Vec2, right: Vec2) -> [Point;
 }
 
 fn reparameterize(pts: &[Point], u: &[f64], bez: &[Point; 4]) -> Vec<f64> {
-    pts.iter().zip(u.iter()).map(|(p, t)| newton_raphson(bez, *p, *t)).collect()
+    pts.iter()
+        .zip(u.iter())
+        .map(|(p, t)| newton_raphson(bez, *p, *t))
+        .collect()
 }
 
 /// One Newton-Raphson step toward the parameter whose point on the curve is closest.
@@ -404,13 +407,19 @@ mod tests {
         let d = to_svg(&fitted);
 
         let segments = fitted.segments().count();
-        assert!(segments <= 12, "expected a compact fit, got {segments} segments");
+        assert!(
+            segments <= 12,
+            "expected a compact fit, got {segments} segments"
+        );
 
         // Every fitted point should still lie on the circle of radius 100.
         for ring in crate::flatten_path(&d, 0.01).unwrap() {
             for p in ring {
                 let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-                assert!((r - 100.0).abs() < 0.5, "point drifted off the circle: r={r}");
+                assert!(
+                    (r - 100.0).abs() < 0.5,
+                    "point drifted off the circle: r={r}"
+                );
             }
         }
     }
@@ -427,15 +436,23 @@ mod tests {
         // The square's corners must survive. Fitting one cubic through all four would
         // pass through every corner and bulge far outside the shape — the bug this
         // corner-splitting exists to prevent.
-        let square =
-            [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0], [0.0, 0.0]];
+        let square = [
+            [0.0, 0.0],
+            [100.0, 0.0],
+            [100.0, 100.0],
+            [0.0, 100.0],
+            [0.0, 0.0],
+        ];
         let fitted = fit_cubics(&square, 0.05);
         let b = crate::bounds(&to_svg(&fitted)).unwrap();
         assert!(
             (b.w - 100.0).abs() < 0.01 && (b.h - 100.0).abs() < 0.01,
             "fitting distorted a square: {b:?}"
         );
-        assert!(!to_svg(&fitted).contains('C'), "straight edges should stay straight");
+        assert!(
+            !to_svg(&fitted).contains('C'),
+            "straight edges should stay straight"
+        );
     }
 
     #[test]
@@ -448,15 +465,24 @@ mod tests {
         }
         let fitted = fit_cubics(&pts, 0.05);
         let d = to_svg(&fitted);
-        assert!(d.contains('C'), "the arc should have been fitted to curves: {d}");
+        assert!(
+            d.contains('C'),
+            "the arc should have been fitted to curves: {d}"
+        );
         let b = crate::bounds(&d).unwrap();
-        assert!((b.w - 100.0).abs() < 0.2 && (b.h - 50.0).abs() < 0.2, "got {b:?}");
+        assert!(
+            (b.w - 100.0).abs() < 0.2 && (b.h - 50.0).abs() < 0.2,
+            "got {b:?}"
+        );
     }
 
     #[test]
     fn degenerate_input_does_not_panic() {
         assert_eq!(fit_cubics(&[], 0.1).elements().len(), 0);
         assert_eq!(fit_cubics(&[[1.0, 1.0]], 0.1).elements().len(), 0);
-        assert_eq!(fit_cubics(&[[1.0, 1.0], [1.0, 1.0]], 0.1).elements().len(), 0);
+        assert_eq!(
+            fit_cubics(&[[1.0, 1.0], [1.0, 1.0]], 0.1).elements().len(),
+            0
+        );
     }
 }

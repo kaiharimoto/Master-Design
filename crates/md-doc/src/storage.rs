@@ -97,13 +97,23 @@ pub fn save_project(dir: &Path, doc: &Document) -> Result<()> {
 
     for page in &doc.pages {
         let file = format!("{}.json", sanitize(&page.slug));
-        refs.push(PageRef { id: page.id.clone(), slug: page.slug.clone(), file: file.clone() });
-        write_atomic(&dir.join(PAGES_DIR).join(&file), &to_canonical_string(page)?)?;
+        refs.push(PageRef {
+            id: page.id.clone(),
+            slug: page.slug.clone(),
+            file: file.clone(),
+        });
+        write_atomic(
+            &dir.join(PAGES_DIR).join(&file),
+            &to_canonical_string(page)?,
+        )?;
         written.push(file);
     }
 
-    let project =
-        ProjectFile { schema_version: doc.schema_version, meta: doc.meta.clone(), pages: refs };
+    let project = ProjectFile {
+        schema_version: doc.schema_version,
+        meta: doc.meta.clone(),
+        pages: refs,
+    };
     write_atomic(&dir.join(PROJECT_FILE), &to_canonical_string(&project)?)?;
 
     let tokens_path = dir.join(TOKENS_FILE);
@@ -137,9 +147,8 @@ fn prune_stale_pages(pages_dir: &Path, keep: &[String]) -> Result<()> {
 /// Read a project directory.
 pub fn load_project(dir: &Path) -> Result<Document> {
     let project_path = dir.join(PROJECT_FILE);
-    let raw = fs::read_to_string(&project_path).map_err(|e| {
-        DocError::Io(format!("could not read {}: {e}", project_path.display()))
-    })?;
+    let raw = fs::read_to_string(&project_path)
+        .map_err(|e| DocError::Io(format!("could not read {}: {e}", project_path.display())))?;
     let project: ProjectFile = serde_json::from_str(&raw)?;
 
     if project.schema_version > crate::document::SCHEMA_VERSION {
@@ -166,8 +175,12 @@ pub fn load_project(dir: &Path) -> Result<Document> {
         Tokens::default()
     };
 
-    let doc =
-        Document { schema_version: project.schema_version, meta: project.meta, tokens, pages };
+    let doc = Document {
+        schema_version: project.schema_version,
+        meta: project.meta,
+        tokens,
+        pages,
+    };
     doc.validate()?;
     Ok(doc)
 }
@@ -179,7 +192,11 @@ pub fn is_project_dir(dir: &Path) -> bool {
 
 /// Search upward from a path for the project directory containing it.
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {
-    let mut cur = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    let mut cur = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
     loop {
         if is_project_dir(&cur) {
             return Some(cur);
@@ -255,7 +272,13 @@ fn write_atomic(path: &Path, contents: &str) -> Result<()> {
 fn sanitize(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let trimmed = cleaned.trim_matches('-').to_string();
     if trimmed.is_empty() {
@@ -286,9 +309,15 @@ mod tests {
         d.pages[0].root.id = NodeId::from_static("nd_root");
         d.pages[0].root.children.push(Node::new(
             NodeId::from_static("nd_card"),
-            NodeKind::Rect(RectGeometry { width: 10.0, height: 10.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 10.0,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
         ));
-        d.tokens.colors.insert("accent".into(), Color::parse("#ff0055").unwrap());
+        d.tokens
+            .colors
+            .insert("accent".into(), Color::parse("#ff0055").unwrap());
         d
     }
 
@@ -319,7 +348,13 @@ mod tests {
     fn each_page_gets_its_own_file() {
         let dir = tmpdir("pages");
         let mut doc = sample();
-        doc.pages.push(Page::new(PageId::from_static("pg_about"), "About", "about", 1440.0, 900.0));
+        doc.pages.push(Page::new(
+            PageId::from_static("pg_about"),
+            "About",
+            "about",
+            1440.0,
+            900.0,
+        ));
         save_project(&dir, &doc).unwrap();
 
         assert!(dir.join(PAGES_DIR).join("index.json").exists());
@@ -330,13 +365,22 @@ mod tests {
     fn deleting_a_page_removes_its_file() {
         let dir = tmpdir("prune");
         let mut doc = sample();
-        doc.pages.push(Page::new(PageId::from_static("pg_about"), "About", "about", 1440.0, 900.0));
+        doc.pages.push(Page::new(
+            PageId::from_static("pg_about"),
+            "About",
+            "about",
+            1440.0,
+            900.0,
+        ));
         save_project(&dir, &doc).unwrap();
         assert!(dir.join(PAGES_DIR).join("about.json").exists());
 
         doc.pages.pop();
         save_project(&dir, &doc).unwrap();
-        assert!(!dir.join(PAGES_DIR).join("about.json").exists(), "stale page file was left behind");
+        assert!(
+            !dir.join(PAGES_DIR).join("about.json").exists(),
+            "stale page file was left behind"
+        );
     }
 
     #[test]
@@ -358,11 +402,17 @@ mod tests {
         save_project(&dir, &doc).unwrap();
 
         let raw = fs::read_to_string(dir.join(PROJECT_FILE)).unwrap();
-        fs::write(dir.join(PROJECT_FILE), raw.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99"))
-            .unwrap();
+        fs::write(
+            dir.join(PROJECT_FILE),
+            raw.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99"),
+        )
+        .unwrap();
 
         let err = load_project(&dir).unwrap_err().to_string();
-        assert!(err.contains("99") && err.contains("update"), "unhelpful error: {err}");
+        assert!(
+            err.contains("99") && err.contains("update"),
+            "unhelpful error: {err}"
+        );
     }
 
     #[test]

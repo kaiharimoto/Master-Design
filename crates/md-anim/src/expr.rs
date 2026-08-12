@@ -27,7 +27,12 @@ pub type Scope = BTreeMap<String, f64>;
 /// benefit in caching a parsed form.
 pub fn eval(source: &str, scope: &Scope) -> Result<f64> {
     let tokens = tokenize(source)?;
-    let mut parser = Parser { tokens, pos: 0, scope, source };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        scope,
+        source,
+    };
     let value = parser.expr()?;
     if parser.pos < parser.tokens.len() {
         return Err(AnimError::Expression {
@@ -263,7 +268,10 @@ fn call(name: &str, args: &[f64]) -> std::result::Result<f64, String> {
         if args.len() == n {
             Ok(())
         } else {
-            Err(format!("{name}() takes {n} argument(s), got {}", args.len()))
+            Err(format!(
+                "{name}() takes {n} argument(s), got {}",
+                args.len()
+            ))
         }
     };
 
@@ -353,7 +361,10 @@ mod tests {
     fn an_unknown_variable_lists_what_is_available() {
         let err = eval("wobble * 2", &scope()).unwrap_err().to_string();
         assert!(err.contains("wobble"), "got {err}");
-        assert!(err.contains("distance"), "the error should list valid names: {err}");
+        assert!(
+            err.contains("distance"),
+            "the error should list valid names: {err}"
+        );
     }
 
     #[test]

@@ -72,7 +72,15 @@ mod tests {
 
     #[test]
     fn coord_formatting_is_idempotent() {
-        for raw in [0.0, -0.0, 1.0, 0.30000000000000004, -12.345678, 1e-9, 99999.99999] {
+        for raw in [
+            0.0,
+            -0.0,
+            1.0,
+            0.30000000000000004,
+            -12.345678,
+            1e-9,
+            99999.99999,
+        ] {
             let once = fmt_coord(raw);
             let twice = fmt_coord(once.parse::<f64>().unwrap());
             assert_eq!(once, twice, "not idempotent for {raw}");

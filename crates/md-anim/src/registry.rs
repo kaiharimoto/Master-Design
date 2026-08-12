@@ -93,8 +93,11 @@ impl Registry {
         };
 
         let mut loaded = 0;
-        let mut dirs: Vec<PathBuf> =
-            entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        let mut dirs: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
         // Deterministic order, so two machines produce the same registry.
         dirs.sort();
 
@@ -119,7 +122,8 @@ impl Registry {
     }
 
     pub fn require(&self, id: &str) -> Result<&AnimationPackage> {
-        self.get(id).ok_or_else(|| AnimError::NotFound(id.to_string()))
+        self.get(id)
+            .ok_or_else(|| AnimError::NotFound(id.to_string()))
     }
 
     pub fn len(&self) -> usize {
@@ -136,7 +140,10 @@ impl Registry {
     }
 
     pub fn by_category(&self, category: Category) -> Vec<&AnimationPackage> {
-        self.packages.values().filter(|p| p.manifest.category == category).collect()
+        self.packages
+            .values()
+            .filter(|p| p.manifest.category == category)
+            .collect()
     }
 
     /// Free-text search over id, title, description and tags.
@@ -168,11 +175,15 @@ impl Registry {
 
 fn load_package(dir: &Path, origin: Origin) -> Result<AnimationPackage> {
     let path = dir.join(MANIFEST_FILE);
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| AnimError::Io(format!("{}: {e}", path.display())))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| AnimError::Io(format!("{}: {e}", path.display())))?;
     let manifest: AnimationManifest = serde_json::from_str(&raw)?;
     manifest.validate()?;
-    Ok(AnimationPackage { manifest, dir: dir.to_path_buf(), origin })
+    Ok(AnimationPackage {
+        manifest,
+        dir: dir.to_path_buf(),
+        origin,
+    })
 }
 
 /// Load the standard library, then user packages, then the open project's own — in the
@@ -223,8 +234,11 @@ mod tests {
                 }
             }
         });
-        fs::write(dir.join(MANIFEST_FILE), serde_json::to_string_pretty(&manifest).unwrap())
-            .unwrap();
+        fs::write(
+            dir.join(MANIFEST_FILE),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     fn tmpdir(name: &str) -> PathBuf {
@@ -283,8 +297,14 @@ mod tests {
     #[test]
     fn a_missing_directory_is_quietly_empty() {
         let mut reg = Registry::new();
-        assert_eq!(reg.load_dir(Path::new("/nonexistent/animations"), Origin::User), 0);
-        assert!(reg.problems.is_empty(), "an absent optional directory is not a problem");
+        assert_eq!(
+            reg.load_dir(Path::new("/nonexistent/animations"), Origin::User),
+            0
+        );
+        assert!(
+            reg.problems.is_empty(),
+            "an absent optional directory is not a problem"
+        );
     }
 
     #[test]

@@ -25,7 +25,11 @@ macro_rules! prefixed_id {
             /// Mint a fresh id.
             #[allow(clippy::new_without_default)]
             pub fn new() -> Self {
-                $name(format!("{}{}", $prefix, ulid::Ulid::new().to_string().to_lowercase()))
+                $name(format!(
+                    "{}{}",
+                    $prefix,
+                    ulid::Ulid::new().to_string().to_lowercase()
+                ))
             }
 
             /// Accept an existing id, checking the prefix.
@@ -34,7 +38,10 @@ macro_rules! prefixed_id {
                 if !s.starts_with($prefix) || s.len() <= $prefix.len() {
                     return Err(DocError::InvalidId(s));
                 }
-                if !s[$prefix.len()..].chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                if !s[$prefix.len()..]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
+                {
                     return Err(DocError::InvalidId(s));
                 }
                 Ok($name(s))
@@ -68,7 +75,11 @@ macro_rules! prefixed_id {
     };
 }
 
-prefixed_id!(NodeId, "nd_", "Identifier for a node in a page's scene graph.");
+prefixed_id!(
+    NodeId,
+    "nd_",
+    "Identifier for a node in a page's scene graph."
+);
 prefixed_id!(PageId, "pg_", "Identifier for a page.");
 prefixed_id!(TimelineId, "tl_", "Identifier for a timeline.");
 

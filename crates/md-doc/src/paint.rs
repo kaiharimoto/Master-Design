@@ -20,7 +20,9 @@ impl Color {
 
     pub fn parse(s: &str) -> Result<Self> {
         let t = s.trim().to_ascii_lowercase();
-        let hex = t.strip_prefix('#').ok_or_else(|| DocError::InvalidColor(s.to_string()))?;
+        let hex = t
+            .strip_prefix('#')
+            .ok_or_else(|| DocError::InvalidColor(s.to_string()))?;
         if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(DocError::InvalidColor(s.to_string()));
         }
@@ -50,10 +52,14 @@ impl Color {
     /// Channels in 0..1, alpha included.
     pub fn rgba(&self) -> [f64; 4] {
         let h = &self.0[1..];
-        let byte = |i: usize| {
-            u8::from_str_radix(&h[i * 2..i * 2 + 2], 16).unwrap_or(0) as f64 / 255.0
-        };
-        [byte(0), byte(1), byte(2), if h.len() == 8 { byte(3) } else { 1.0 }]
+        let byte =
+            |i: usize| u8::from_str_radix(&h[i * 2..i * 2 + 2], 16).unwrap_or(0) as f64 / 255.0;
+        [
+            byte(0),
+            byte(1),
+            byte(2),
+            if h.len() == 8 { byte(3) } else { 1.0 },
+        ]
     }
 
     /// The opaque `#rrggbb` part, for SVG attributes that take colour and opacity
@@ -151,7 +157,10 @@ pub enum Paint {
 
 impl Paint {
     pub fn solid(hex: &str) -> Result<Paint> {
-        Ok(Paint::Solid { color: Color::parse(hex)?, opacity: 1.0 })
+        Ok(Paint::Solid {
+            color: Color::parse(hex)?,
+            opacity: 1.0,
+        })
     }
 
     pub fn opacity(&self) -> f64 {
@@ -332,7 +341,10 @@ mod tests {
 
     #[test]
     fn opaque_alpha_is_dropped_so_one_colour_has_one_spelling() {
-        assert_eq!(Color::parse("#ff0055ff").unwrap(), Color::parse("#ff0055").unwrap());
+        assert_eq!(
+            Color::parse("#ff0055ff").unwrap(),
+            Color::parse("#ff0055").unwrap()
+        );
     }
 
     #[test]
@@ -350,7 +362,14 @@ mod tests {
     #[test]
     fn junk_is_rejected() {
         // Note `#ff00` is absent: four digits is valid `#rgba` shorthand, not junk.
-        for bad in ["ff0055", "#gg0055", "#12345", "#", "rebeccapurple", "#1234567"] {
+        for bad in [
+            "ff0055",
+            "#gg0055",
+            "#12345",
+            "#",
+            "rebeccapurple",
+            "#1234567",
+        ] {
             assert!(Color::parse(bad).is_err(), "{bad} should not parse");
         }
     }

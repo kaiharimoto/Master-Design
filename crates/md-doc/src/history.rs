@@ -42,7 +42,11 @@ impl Default for History {
 
 impl History {
     pub fn with_limit(limit: usize) -> Self {
-        History { undo: Vec::new(), redo: Vec::new(), limit: limit.max(1) }
+        History {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            limit: limit.max(1),
+        }
     }
 
     pub fn can_undo(&self) -> bool {
@@ -90,7 +94,11 @@ pub struct Session {
 
 impl Session {
     pub fn new(doc: Document) -> Self {
-        Session { doc, history: History::default(), revision: 0 }
+        Session {
+            doc,
+            history: History::default(),
+            revision: 0,
+        }
     }
 
     pub fn document(&self) -> &Document {
@@ -119,7 +127,10 @@ impl Session {
     /// A patch that fails changes nothing — not the document, not the history.
     pub fn apply(&mut self, label: impl Into<String>, ops: Vec<Op>) -> Result<PatchReport> {
         let (inverse, report) = apply_ops(&mut self.doc, &ops)?;
-        self.history.push_undo(Transaction { label: label.into(), ops: inverse });
+        self.history.push_undo(Transaction {
+            label: label.into(),
+            ops: inverse,
+        });
         // A new edit invalidates any future that was branched away from.
         self.history.redo.clear();
         self.revision += 1;
@@ -136,7 +147,10 @@ impl Session {
                 return Err(e);
             }
         };
-        self.history.redo.push(Transaction { label: tx.label, ops: inverse });
+        self.history.redo.push(Transaction {
+            label: tx.label,
+            ops: inverse,
+        });
         self.revision += 1;
         Ok(report)
     }
@@ -150,7 +164,10 @@ impl Session {
                 return Err(e);
             }
         };
-        self.history.push_undo(Transaction { label: tx.label, ops: inverse });
+        self.history.push_undo(Transaction {
+            label: tx.label,
+            ops: inverse,
+        });
         self.revision += 1;
         Ok(report)
     }
@@ -167,7 +184,11 @@ mod tests {
     fn rect(id: &'static str) -> Node {
         Node::new(
             NodeId::from_static(id),
-            NodeKind::Rect(RectGeometry { width: 10.0, height: 10.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 10.0,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
         )
     }
 
@@ -184,7 +205,11 @@ mod tests {
 
         s.apply(
             "Add rectangle",
-            vec![Op::NodeInsert { parent: root, index: None, node: rect("nd_1") }],
+            vec![Op::NodeInsert {
+                parent: root,
+                index: None,
+                node: rect("nd_1"),
+            }],
         )
         .unwrap();
         assert_ne!(to_canonical_string(s.document()).unwrap(), before);
@@ -202,7 +227,11 @@ mod tests {
         let (mut s, root) = session();
         s.apply(
             "Add rectangle",
-            vec![Op::NodeInsert { parent: root, index: None, node: rect("nd_1") }],
+            vec![Op::NodeInsert {
+                parent: root,
+                index: None,
+                node: rect("nd_1"),
+            }],
         )
         .unwrap();
         let after = to_canonical_string(s.document()).unwrap();
@@ -221,7 +250,11 @@ mod tests {
 
         s.apply(
             "AI: add hero",
-            vec![Op::NodeInsert { parent: root.clone(), index: None, node: rect("nd_ai") }],
+            vec![Op::NodeInsert {
+                parent: root.clone(),
+                index: None,
+                node: rect("nd_ai"),
+            }],
         )
         .unwrap();
         let after_ai = to_canonical_string(s.document()).unwrap();
@@ -237,22 +270,47 @@ mod tests {
         .unwrap();
 
         s.undo().unwrap();
-        assert_eq!(to_canonical_string(s.document()).unwrap(), after_ai, "GUI edit did not undo");
+        assert_eq!(
+            to_canonical_string(s.document()).unwrap(),
+            after_ai,
+            "GUI edit did not undo"
+        );
         s.undo().unwrap();
-        assert_eq!(to_canonical_string(s.document()).unwrap(), baseline, "AI edit did not undo");
+        assert_eq!(
+            to_canonical_string(s.document()).unwrap(),
+            baseline,
+            "AI edit did not undo"
+        );
     }
 
     #[test]
     fn a_new_edit_discards_the_redo_branch() {
         let (mut s, root) = session();
-        s.apply("A", vec![Op::NodeInsert { parent: root.clone(), index: None, node: rect("nd_1") }])
-            .unwrap();
+        s.apply(
+            "A",
+            vec![Op::NodeInsert {
+                parent: root.clone(),
+                index: None,
+                node: rect("nd_1"),
+            }],
+        )
+        .unwrap();
         s.undo().unwrap();
         assert!(s.history().can_redo());
 
-        s.apply("B", vec![Op::NodeInsert { parent: root, index: None, node: rect("nd_2") }])
-            .unwrap();
-        assert!(!s.history().can_redo(), "redo should not survive a divergent edit");
+        s.apply(
+            "B",
+            vec![Op::NodeInsert {
+                parent: root,
+                index: None,
+                node: rect("nd_2"),
+            }],
+        )
+        .unwrap();
+        assert!(
+            !s.history().can_redo(),
+            "redo should not survive a divergent edit"
+        );
     }
 
     #[test]
@@ -263,7 +321,11 @@ mod tests {
         let err = s.apply(
             "Bad patch",
             vec![
-                Op::NodeInsert { parent: root, index: None, node: rect("nd_ok") },
+                Op::NodeInsert {
+                    parent: root,
+                    index: None,
+                    node: rect("nd_ok"),
+                },
                 Op::NodeUpdate {
                     id: NodeId::from_static("nd_missing"),
                     path: "width".into(),
@@ -278,7 +340,10 @@ mod tests {
             before,
             "the first op of a failed patch was left applied"
         );
-        assert!(!s.history().can_undo(), "a failed patch should not create an undo step");
+        assert!(
+            !s.history().can_undo(),
+            "a failed patch should not create an undo step"
+        );
     }
 
     #[test]
@@ -292,13 +357,24 @@ mod tests {
     fn the_stack_is_bounded() {
         let doc = Document::new("Test");
         let root = doc.pages[0].root.id.clone();
-        let mut s = Session { doc, history: History::with_limit(3), revision: 0 };
+        let mut s = Session {
+            doc,
+            history: History::with_limit(3),
+            revision: 0,
+        };
 
         for i in 0..10 {
             let mut n = rect("nd_x");
             n.id = NodeId::parse(format!("nd_{i}")).unwrap();
-            s.apply("step", vec![Op::NodeInsert { parent: root.clone(), index: None, node: n }])
-                .unwrap();
+            s.apply(
+                "step",
+                vec![Op::NodeInsert {
+                    parent: root.clone(),
+                    index: None,
+                    node: n,
+                }],
+            )
+            .unwrap();
         }
         assert_eq!(s.history().depth().0, 3);
     }
@@ -308,7 +384,11 @@ mod tests {
         let (mut s, root) = session();
         s.apply(
             "Add rectangle",
-            vec![Op::NodeInsert { parent: root, index: None, node: rect("nd_1") }],
+            vec![Op::NodeInsert {
+                parent: root,
+                index: None,
+                node: rect("nd_1"),
+            }],
         )
         .unwrap();
         assert_eq!(s.history().undo_label(), Some("Add rectangle"));
@@ -320,8 +400,15 @@ mod tests {
     fn revision_advances_on_every_accepted_change() {
         let (mut s, root) = session();
         assert_eq!(s.revision(), 0);
-        s.apply("A", vec![Op::NodeInsert { parent: root, index: None, node: rect("nd_1") }])
-            .unwrap();
+        s.apply(
+            "A",
+            vec![Op::NodeInsert {
+                parent: root,
+                index: None,
+                node: rect("nd_1"),
+            }],
+        )
+        .unwrap();
         assert_eq!(s.revision(), 1);
         s.undo().unwrap();
         assert_eq!(s.revision(), 2);

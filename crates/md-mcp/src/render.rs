@@ -31,7 +31,12 @@ impl Default for SnapshotOptions {
     fn default() -> Self {
         // 1024 is wide enough to judge layout and type, small enough that the base64
         // payload does not dominate the model's context.
-        SnapshotOptions { width: 1024, time: None, node: None, region: None }
+        SnapshotOptions {
+            width: 1024,
+            time: None,
+            node: None,
+            region: None,
+        }
     }
 }
 
@@ -94,16 +99,14 @@ pub fn snapshot(
         &mut pixmap.as_mut(),
     );
 
-    let png = pixmap.encode_png().map_err(|e| format!("could not encode PNG: {e}"))?;
+    let png = pixmap
+        .encode_png()
+        .map_err(|e| format!("could not encode PNG: {e}"))?;
     Ok((png, width, height))
 }
 
 /// Work out what area to render.
-fn resolve_crop(
-    doc: &Document,
-    page: &Page,
-    opts: &SnapshotOptions,
-) -> Result<[f64; 4], String> {
+fn resolve_crop(doc: &Document, page: &Page, opts: &SnapshotOptions) -> Result<[f64; 4], String> {
     if let Some(region) = opts.region {
         if region[2] <= 0.0 || region[3] <= 0.0 {
             return Err("region must have a positive width and height".to_string());
@@ -112,7 +115,9 @@ fn resolve_crop(
     }
 
     if let Some(id) = &opts.node {
-        let node = doc.node(id).ok_or_else(|| format!("no node {id} in this document"))?;
+        let node = doc
+            .node(id)
+            .ok_or_else(|| format!("no node {id} in this document"))?;
         let bounds = node
             .bounds_in_parent()
             .ok_or_else(|| format!("{} has no measurable bounds", node.display_name()))?;
@@ -137,7 +142,10 @@ fn resolve_crop(
 /// attribute rather than teaching the exporter about regions it will never need
 /// anywhere else.
 fn wrap_for_crop(doc: &Document, page: &Page, crop: [f64; 4]) -> String {
-    let opts = ExportOptions { accessibility_outline: false, ..Default::default() };
+    let opts = ExportOptions {
+        accessibility_outline: false,
+        ..Default::default()
+    };
     let (html, _) = md_emit::render_page(doc, page, &opts);
 
     let svg = extract_svg(&html).unwrap_or_default();
@@ -247,7 +255,10 @@ mod tests {
 
     #[test]
     fn a_zero_sized_region_is_refused() {
-        let opts = SnapshotOptions { region: Some([0.0, 0.0, 0.0, 10.0]), ..Default::default() };
+        let opts = SnapshotOptions {
+            region: Some([0.0, 0.0, 0.0, 10.0]),
+            ..Default::default()
+        };
         assert!(snapshot(&doc(), "index", &opts).is_err());
     }
 
@@ -283,21 +294,44 @@ mod tests {
                 target: NodeId::from_static("nd_card"),
                 property: "translateX".into(),
                 keyframes: vec![
-                    Keyframe { t: 0.0, value: json!(0), easing: Easing::Linear },
-                    Keyframe { t: 1.0, value: json!(600), easing: Easing::Linear },
+                    Keyframe {
+                        t: 0.0,
+                        value: json!(0),
+                        easing: Easing::Linear,
+                    },
+                    Keyframe {
+                        t: 1.0,
+                        value: json!(600),
+                        easing: Easing::Linear,
+                    },
                 ],
             }],
         });
 
-        let start =
-            snapshot(&d, "index", &SnapshotOptions { time: Some(0.0), ..Default::default() })
-                .unwrap()
-                .0;
-        let end =
-            snapshot(&d, "index", &SnapshotOptions { time: Some(1.0), ..Default::default() })
-                .unwrap()
-                .0;
+        let start = snapshot(
+            &d,
+            "index",
+            &SnapshotOptions {
+                time: Some(0.0),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .0;
+        let end = snapshot(
+            &d,
+            "index",
+            &SnapshotOptions {
+                time: Some(1.0),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .0;
 
-        assert_ne!(start, end, "the animation did not move between the two frames");
+        assert_ne!(
+            start, end,
+            "the animation did not move between the two frames"
+        );
     }
 }

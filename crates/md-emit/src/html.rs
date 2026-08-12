@@ -14,7 +14,11 @@ pub fn page_html(
     runtime: Option<&str>,
     outline: bool,
 ) -> String {
-    let title = if page.name.is_empty() { doc.meta.name.clone() } else { page.name.clone() };
+    let title = if page.name.is_empty() {
+        doc.meta.name.clone()
+    } else {
+        page.name.clone()
+    };
 
     let description = if doc.meta.description.is_empty() {
         String::new()
@@ -42,8 +46,9 @@ pub fn page_html(
         })
         .unwrap_or_default();
 
-    let runtime_tag =
-        runtime.map(|js| format!("<script>{js}</script>")).unwrap_or_default();
+    let runtime_tag = runtime
+        .map(|js| format!("<script>{js}</script>"))
+        .unwrap_or_default();
 
     format!(
         "<!doctype html>\n\
@@ -129,7 +134,11 @@ fn walk(node: &Node, out: &mut String) {
         }
     }
 
-    let landmark = node.a11y.as_ref().and_then(|a| a.role.as_deref()).and_then(landmark_tag);
+    let landmark = node
+        .a11y
+        .as_ref()
+        .and_then(|a| a.role.as_deref())
+        .and_then(landmark_tag);
 
     if let Some(tag) = landmark {
         let label = node
@@ -198,7 +207,11 @@ fn emit_content(node: &Node, out: &mut String) {
         _ => {
             // A shape with a label is meaningful artwork — a logo, an icon, a diagram.
             if let Some(label) = a11y.and_then(|a| a.label.as_deref().or(a.alt.as_deref())) {
-                let _ = write!(out, "<p role=\"img\" aria-label=\"{}\"></p>", esc_attr(label));
+                let _ = write!(
+                    out,
+                    "<p role=\"img\" aria-label=\"{}\"></p>",
+                    esc_attr(label)
+                );
             }
         }
     }
@@ -232,7 +245,10 @@ mod tests {
             NodeId::from_static("nd_h"),
             NodeKind::Text(TextGeometry::new("Design in motion", "Inter", 64.0)),
         );
-        heading.a11y = Some(A11y { heading_level: Some(1), ..Default::default() });
+        heading.a11y = Some(A11y {
+            heading_level: Some(1),
+            ..Default::default()
+        });
 
         let body = Node::new(
             NodeId::from_static("nd_p"),
@@ -277,7 +293,10 @@ mod tests {
             NodeId::from_static("nd_d"),
             NodeKind::Text(TextGeometry::new("swoosh", "Inter", 12.0)),
         );
-        decorative.a11y = Some(A11y { hidden: true, ..Default::default() });
+        decorative.a11y = Some(A11y {
+            hidden: true,
+            ..Default::default()
+        });
         p.root.children.push(decorative);
 
         assert!(!accessibility_outline(&p).contains("swoosh"));
@@ -301,7 +320,11 @@ mod tests {
         let mut p = page();
         p.root.children.push(Node::new(
             NodeId::from_static("nd_r"),
-            NodeKind::Rect(RectGeometry { width: 10.0, height: 10.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 10.0,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
         ));
         let out = accessibility_outline(&p);
         assert!(!out.contains("role=\"img\""), "got {out}");
@@ -312,10 +335,17 @@ mod tests {
         let mut p = Page::new(PageId::from_static("pg_1"), "Home", "index", 100.0, 100.0);
         p.root.children.push(Node::new(
             NodeId::from_static("nd_t"),
-            NodeKind::Text(TextGeometry::new("<script>alert(1)</script>", "Inter", 12.0)),
+            NodeKind::Text(TextGeometry::new(
+                "<script>alert(1)</script>",
+                "Inter",
+                12.0,
+            )),
         ));
         let out = accessibility_outline(&p);
-        assert!(!out.contains("<script>"), "unescaped markup got through: {out}");
+        assert!(
+            !out.contains("<script>"),
+            "unescaped markup got through: {out}"
+        );
         assert!(out.contains("&lt;script&gt;"), "got {out}");
     }
 
@@ -323,6 +353,9 @@ mod tests {
     fn the_hidden_outline_stays_in_the_accessibility_tree() {
         let css = stylesheet(&page());
         assert!(css.contains("clip-path:inset(50%)"), "got {css}");
-        assert!(!css.contains("display:none"), "display:none would hide it from screen readers");
+        assert!(
+            !css.contains("display:none"),
+            "display:none would hide it from screen readers"
+        );
     }
 }

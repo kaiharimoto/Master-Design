@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover puts the canvas under the notch and the gesture bar; the shell
+      pads itself back off them with env(safe-area-inset-*), so the artwork uses the
+      whole screen while the controls stay reachable.
+
+      user-scalable=no because the canvas handles pinch itself — browser zoom on a
+      design tool zooms the chrome too, which is never what a pinch on artwork means.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <title>Master Design</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>

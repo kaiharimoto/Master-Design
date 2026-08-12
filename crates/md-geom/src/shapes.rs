@@ -73,14 +73,7 @@ pub fn polygon_path(cx: f64, cy: f64, radius: f64, sides: u32, rotation: f64) ->
 }
 
 /// Star alternating between an outer and inner radius.
-pub fn star_path(
-    cx: f64,
-    cy: f64,
-    outer: f64,
-    inner: f64,
-    points: u32,
-    rotation: f64,
-) -> String {
+pub fn star_path(cx: f64, cy: f64, outer: f64, inner: f64, points: u32, rotation: f64) -> String {
     if points < 3 || outer <= 0.0 || inner <= 0.0 {
         return String::new();
     }
@@ -200,7 +193,11 @@ fn round_polyline(out: &mut BezPath, points: &[Point], closed: bool, radius: f64
         return;
     }
 
-    let range: Vec<usize> = if closed { (0..n).collect() } else { (1..n - 1).collect() };
+    let range: Vec<usize> = if closed {
+        (0..n).collect()
+    } else {
+        (1..n - 1).collect()
+    };
     let mut started = false;
 
     if !closed {
@@ -280,7 +277,10 @@ mod tests {
     fn rounded_rect_keeps_its_bounds() {
         let d = rect_path(0.0, 0.0, 40.0, 20.0, [5.0; 4]);
         let b = bounds(&d).unwrap();
-        assert!((b.w - 40.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05, "got {b:?}");
+        assert!(
+            (b.w - 40.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05,
+            "got {b:?}"
+        );
         // The corner is cut away.
         assert!(!hit_test_fill(&d, 0.3, 0.3, FillRule::NonZero).unwrap());
         assert!(hit_test_fill(&d, 20.0, 10.0, FillRule::NonZero).unwrap());
@@ -298,7 +298,10 @@ mod tests {
     fn ellipse_has_the_right_extent() {
         let d = ellipse_path(0.0, 0.0, 30.0, 10.0);
         let b = bounds(&d).unwrap();
-        assert!((b.w - 60.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05, "got {b:?}");
+        assert!(
+            (b.w - 60.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05,
+            "got {b:?}"
+        );
     }
 
     #[test]
@@ -321,13 +324,19 @@ mod tests {
         assert!(!hit_test_fill(&rounded, 0.2, 0.2, FillRule::NonZero).unwrap());
         assert!(hit_test_fill(&rounded, 10.0, 10.0, FillRule::NonZero).unwrap());
         let b = bounds(&rounded).unwrap();
-        assert!((b.w - 20.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05, "got {b:?}");
+        assert!(
+            (b.w - 20.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05,
+            "got {b:?}"
+        );
     }
 
     #[test]
     fn rounding_leaves_curved_subpaths_alone() {
         let curvy = "M 0 0 C 5 10 15 10 20 0 Z";
-        assert_eq!(round_corners(curvy, 5.0).unwrap(), crate::normalize(curvy).unwrap());
+        assert_eq!(
+            round_corners(curvy, 5.0).unwrap(),
+            crate::normalize(curvy).unwrap()
+        );
     }
 
     #[test]

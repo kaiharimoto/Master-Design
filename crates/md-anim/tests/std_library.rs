@@ -20,8 +20,16 @@ fn std_dir() -> PathBuf {
 fn registry() -> Registry {
     let mut reg = Registry::new();
     let loaded = reg.load_dir(&std_dir(), Origin::Standard);
-    assert!(loaded > 0, "no packages loaded from {}", std_dir().display());
-    assert!(reg.problems.is_empty(), "packages failed to load: {:?}", reg.problems);
+    assert!(
+        loaded > 0,
+        "no packages loaded from {}",
+        std_dir().display()
+    );
+    assert!(
+        reg.problems.is_empty(),
+        "packages failed to load: {:?}",
+        reg.problems
+    );
     reg
 }
 
@@ -66,12 +74,23 @@ fn scene() -> (Document, Vec<NodeId>, Vec<NodeId>) {
 #[test]
 fn every_shipped_package_loads_and_validates() {
     let reg = registry();
-    assert_eq!(reg.len(), 6, "expected six standard animations, got {}", reg.len());
+    assert_eq!(
+        reg.len(),
+        6,
+        "expected six standard animations, got {}",
+        reg.len()
+    );
 
     for pkg in reg.list() {
-        pkg.manifest.validate().unwrap_or_else(|e| panic!("{} is invalid: {e}", pkg.manifest.id));
+        pkg.manifest
+            .validate()
+            .unwrap_or_else(|e| panic!("{} is invalid: {e}", pkg.manifest.id));
         assert_eq!(pkg.manifest.namespace(), "std");
-        assert!(!pkg.manifest.title.is_empty(), "{} has no title", pkg.manifest.id);
+        assert!(
+            !pkg.manifest.title.is_empty(),
+            "{} has no title",
+            pkg.manifest.id
+        );
         assert!(
             !pkg.manifest.description.is_empty(),
             "{} has no description — the picker has nothing to show",
@@ -86,8 +105,11 @@ fn every_package_bakes_against_a_real_scene() {
     let (doc, cards, paths) = scene();
 
     for pkg in reg.list() {
-        let targets: &[NodeId] =
-            if pkg.manifest.applies_to.accepts_kind("rect") { &cards } else { &paths };
+        let targets: &[NodeId] = if pkg.manifest.applies_to.accepts_kind("rect") {
+            &cards
+        } else {
+            &paths
+        };
 
         let timeline = bake(
             &doc,
@@ -103,8 +125,16 @@ fn every_package_bakes_against_a_real_scene() {
         )
         .unwrap_or_else(|e| panic!("{} failed to bake: {e}", pkg.manifest.id));
 
-        assert!(timeline.duration > 0.0, "{} baked a zero duration", pkg.manifest.id);
-        assert!(!timeline.tracks.is_empty(), "{} baked no tracks", pkg.manifest.id);
+        assert!(
+            timeline.duration > 0.0,
+            "{} baked a zero duration",
+            pkg.manifest.id
+        );
+        assert!(
+            !timeline.tracks.is_empty(),
+            "{} baked no tracks",
+            pkg.manifest.id
+        );
         assert!(
             timeline.unknown_properties().is_empty(),
             "{} animates properties the exporter cannot compile: {:?}",
@@ -187,8 +217,8 @@ fn draw_path_measures_the_actual_path_length() {
     let track = &tl.tracks[0];
     assert_eq!(track.property, "strokeDashoffset");
 
-    let expected = md_geom::path_length(&doc.node(&paths[0]).unwrap().geometry_path().unwrap())
-        .unwrap();
+    let expected =
+        md_geom::path_length(&doc.node(&paths[0]).unwrap().geometry_path().unwrap()).unwrap();
     let from = track.keyframes.first().unwrap().value.as_f64().unwrap();
     assert!(
         (from - expected).abs() < 0.01,
@@ -231,12 +261,18 @@ fn scroll_parallax_is_scroll_driven_not_time_driven() {
     )
     .unwrap();
 
-    assert!(!tl.trigger.is_time_driven(), "parallax must be driven by scroll position");
+    assert!(
+        !tl.trigger.is_time_driven(),
+        "parallax must be driven by scroll position"
+    );
     // Symmetric about zero, so the element sits in its designed position mid-scroll.
     let track = &tl.tracks[0];
     let start = track.keyframes.first().unwrap().value.as_f64().unwrap();
     let end = track.keyframes.last().unwrap().value.as_f64().unwrap();
-    assert!((start + end).abs() < 1e-9, "expected symmetric drift, got {start} to {end}");
+    assert!(
+        (start + end).abs() < 1e-9,
+        "expected symmetric drift, got {start} to {end}"
+    );
 }
 
 #[test]
@@ -278,14 +314,21 @@ fn rebaking_picks_up_nodes_added_since_the_animation_was_applied() {
     doc.pages[0].root.children.push(
         Node::new(
             NodeId::from_static("nd_card3"),
-            NodeKind::Rect(RectGeometry { width: 320.0, height: 200.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 320.0,
+                height: 200.0,
+                corner_radius: [0.0; 4],
+            }),
         )
         .with_role("card"),
     );
 
     let rebaked = md_anim::rebake(&doc, &reg, &tl, Some("index")).unwrap();
     assert_eq!(rebaked.tracks.len(), 8);
-    assert_eq!(rebaked.id, tl.id, "a re-bake must replace the timeline, not add another");
+    assert_eq!(
+        rebaked.id, tl.id,
+        "a re-bake must replace the timeline, not add another"
+    );
 }
 
 #[test]
@@ -304,6 +347,10 @@ fn parameters_survive_a_rebake() {
     .unwrap();
 
     let rebaked = md_anim::rebake(&doc, &reg, &tl, Some("index")).unwrap();
-    let ty = rebaked.tracks.iter().find(|t| t.property == "translateY").unwrap();
+    let ty = rebaked
+        .tracks
+        .iter()
+        .find(|t| t.property == "translateY")
+        .unwrap();
     assert_eq!(ty.keyframes.first().unwrap().value.as_f64().unwrap(), 111.0);
 }

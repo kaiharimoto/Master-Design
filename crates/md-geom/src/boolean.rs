@@ -50,7 +50,11 @@ pub fn boolean_op(
             "a boolean operation needs at least two paths".into(),
         ));
     }
-    let tolerance = if tolerance > 0.0 { tolerance } else { DEFAULT_TOLERANCE };
+    let tolerance = if tolerance > 0.0 {
+        tolerance
+    } else {
+        DEFAULT_TOLERANCE
+    };
 
     let mut operands = Vec::with_capacity(paths.len());
     for d in paths {
@@ -133,8 +137,7 @@ fn rings_to_multipolygon(rings: Vec<Vec<[f64; 2]>>) -> MultiPolygon<f64> {
 }
 
 fn to_linestring(ring: &[[f64; 2]]) -> LineString<f64> {
-    let mut coords: Vec<Coord<f64>> =
-        ring.iter().map(|p| Coord { x: p[0], y: p[1] }).collect();
+    let mut coords: Vec<Coord<f64>> = ring.iter().map(|p| Coord { x: p[0], y: p[1] }).collect();
     if coords.first() != coords.last() {
         if let Some(first) = coords.first().copied() {
             coords.push(first);
@@ -266,9 +269,13 @@ mod tests {
 
     #[test]
     fn union_of_two_overlapping_squares_spans_both() {
-        let out =
-            boolean_op(&[square(0.0, 0.0, 10.0), square(5.0, 0.0, 10.0)], BoolOp::Union, 0.01, false)
-                .unwrap();
+        let out = boolean_op(
+            &[square(0.0, 0.0, 10.0), square(5.0, 0.0, 10.0)],
+            BoolOp::Union,
+            0.01,
+            false,
+        )
+        .unwrap();
         let b = bounds(&out).unwrap();
         assert!((b.w - 15.0).abs() < 0.2, "got {b:?}");
         assert!((b.h - 10.0).abs() < 0.2, "got {b:?}");
@@ -306,19 +313,25 @@ mod tests {
     fn a_hole_survives_the_round_trip() {
         // Big square with a small square inside it: even-odd nesting should make a donut.
         let donut = format!("{} {}", square(0.0, 0.0, 30.0), square(10.0, 10.0, 10.0));
-        let out =
-            boolean_op(&[donut, square(-100.0, -100.0, 1.0)], BoolOp::Union, 0.01, false).unwrap();
-        assert!(!hit_test_fill(&out, 15.0, 15.0, FillRule::EvenOdd).unwrap(), "hole was filled in");
+        let out = boolean_op(
+            &[donut, square(-100.0, -100.0, 1.0)],
+            BoolOp::Union,
+            0.01,
+            false,
+        )
+        .unwrap();
+        assert!(
+            !hit_test_fill(&out, 15.0, 15.0, FillRule::EvenOdd).unwrap(),
+            "hole was filled in"
+        );
         assert!(hit_test_fill(&out, 2.0, 2.0, FillRule::EvenOdd).unwrap());
     }
 
     #[test]
     fn refit_compresses_a_circle_union() {
         let circle = |cx: f64| crate::ellipse_path(cx, 0.0, 50.0, 50.0);
-        let dense =
-            boolean_op(&[circle(0.0), circle(40.0)], BoolOp::Union, 0.01, false).unwrap();
-        let fitted =
-            boolean_op(&[circle(0.0), circle(40.0)], BoolOp::Union, 0.01, true).unwrap();
+        let dense = boolean_op(&[circle(0.0), circle(40.0)], BoolOp::Union, 0.01, false).unwrap();
+        let fitted = boolean_op(&[circle(0.0), circle(40.0)], BoolOp::Union, 0.01, true).unwrap();
         let dense_segs = parse(&dense).unwrap().segments().count();
         let fitted_segs = parse(&fitted).unwrap().segments().count();
         assert!(

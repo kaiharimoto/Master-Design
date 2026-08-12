@@ -38,3 +38,6 @@ Thumbs.db
 *.jks
 *.key
 !**/public.key
+
+# Session state inside a project directory: whose cursor is where is not shared work.
+.md/

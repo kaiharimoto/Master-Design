@@ -96,7 +96,10 @@ pub fn bake(doc: &Document, req: &BakeRequest) -> Result<Timeline> {
     Ok(Timeline {
         id: req.timeline_id.clone().unwrap_or_else(TimelineId::new),
         name: req.name.clone().unwrap_or_else(|| manifest.title.clone()),
-        trigger: req.trigger.clone().unwrap_or_else(|| manifest.default_trigger.clone()),
+        trigger: req
+            .trigger
+            .clone()
+            .unwrap_or_else(|| manifest.default_trigger.clone()),
         duration,
         enabled: true,
         reduced_motion: Default::default(),
@@ -139,12 +142,28 @@ fn build_track(
     // Hold the start value until this target's turn comes around. Without this, a
     // staggered element would already be interpolating before its delay elapsed.
     if t0 > 0.0 {
-        keyframes.push(Keyframe { t: 0.0, value: from.clone(), easing: Easing::Linear });
+        keyframes.push(Keyframe {
+            t: 0.0,
+            value: from.clone(),
+            easing: Easing::Linear,
+        });
     }
-    keyframes.push(Keyframe { t: t0, value: from, easing });
-    keyframes.push(Keyframe { t: t1, value: to, easing: Easing::Linear });
+    keyframes.push(Keyframe {
+        t: t0,
+        value: from,
+        easing,
+    });
+    keyframes.push(Keyframe {
+        t: t1,
+        value: to,
+        easing: Easing::Linear,
+    });
 
-    Ok(Track { target: target.clone(), property: template.property.clone(), keyframes })
+    Ok(Track {
+        target: target.clone(),
+        property: template.property.clone(),
+        keyframes,
+    })
 }
 
 /// Resolve a manifest value.
@@ -161,7 +180,9 @@ fn resolve_value(v: &Value, params: &Map<String, Value>, scope: &Scope) -> Resul
                 params
                     .get(key)
                     .cloned()
-                    .ok_or_else(|| AnimError::UnknownParamReference { key: key.to_string() })
+                    .ok_or_else(|| AnimError::UnknownParamReference {
+                        key: key.to_string(),
+                    })
             } else if let Some(formula) = s.strip_prefix('=') {
                 Ok(Value::from(crate::expr::eval(formula, scope)?))
             } else {
@@ -229,14 +250,21 @@ fn merge_params(
             let known: Vec<&str> = manifest.params.iter().map(|p| p.key.as_str()).collect();
             return Err(AnimError::BadParam {
                 key: key.clone(),
-                reason: format!("not a parameter of {} (has: {})", manifest.id, known.join(", ")),
+                reason: format!(
+                    "not a parameter of {} (has: {})",
+                    manifest.id,
+                    known.join(", ")
+                ),
             });
         }
     }
 
     let mut out = Map::new();
     for spec in &manifest.params {
-        let value = supplied.get(&spec.key).cloned().unwrap_or_else(|| spec.default.clone());
+        let value = supplied
+            .get(&spec.key)
+            .cloned()
+            .unwrap_or_else(|| spec.default.clone());
         spec.validate(&value)?;
         out.insert(spec.key.clone(), value);
     }
@@ -349,7 +377,10 @@ mod tests {
             category: Category::Entrance,
             tags: vec![],
             applies_to: AppliesTo::default(),
-            default_trigger: Trigger::View { threshold: 0.2, once: true },
+            default_trigger: Trigger::View {
+                threshold: 0.2,
+                once: true,
+            },
             params: vec![
                 ParamSpec {
                     key: "distance".into(),
@@ -422,8 +453,9 @@ mod tests {
     fn doc_with(n: usize) -> (Document, Vec<NodeId>) {
         let mut d = Document::new("Test");
         d.pages[0].root.id = NodeId::from_static("nd_root");
-        let ids: Vec<NodeId> =
-            (0..n).map(|i| NodeId::parse(format!("nd_{i}")).unwrap()).collect();
+        let ids: Vec<NodeId> = (0..n)
+            .map(|i| NodeId::parse(format!("nd_{i}")).unwrap())
+            .collect();
         for id in &ids {
             d.pages[0].root.children.push(Node::new(
                 id.clone(),
@@ -501,7 +533,11 @@ mod tests {
         let (doc, ids) = doc_with(1);
         let tl = bake(&doc, &request(&m, &ids, json!({ "distance": 120 }))).unwrap();
 
-        let ty = tl.tracks.iter().find(|t| t.property == "translateY").unwrap();
+        let ty = tl
+            .tracks
+            .iter()
+            .find(|t| t.property == "translateY")
+            .unwrap();
         assert_eq!(ty.keyframes[0].value.as_f64().unwrap(), 120.0);
         assert_eq!(ty.keyframes.last().unwrap().value.as_f64().unwrap(), 0.0);
     }
@@ -533,7 +569,9 @@ mod tests {
     fn unknown_parameters_are_rejected_with_the_valid_list() {
         let m = manifest();
         let (doc, ids) = doc_with(1);
-        let err = bake(&doc, &request(&m, &ids, json!({ "wobble": 3 }))).unwrap_err().to_string();
+        let err = bake(&doc, &request(&m, &ids, json!({ "wobble": 3 })))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("wobble"), "got {err}");
         assert!(err.contains("distance"), "should list valid params: {err}");
     }
@@ -550,7 +588,9 @@ mod tests {
         let mut m = manifest();
         m.applies_to.kinds = vec!["path".into()];
         let (doc, ids) = doc_with(1);
-        let err = bake(&doc, &request(&m, &ids, json!({}))).unwrap_err().to_string();
+        let err = bake(&doc, &request(&m, &ids, json!({})))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("cannot apply to a rect"), "got {err}");
     }
 
@@ -581,9 +621,13 @@ mod tests {
     #[test]
     fn script_generators_are_refused_here_with_a_clear_reason() {
         let mut m = manifest();
-        m.generator = Generator::Script { entry: "index.js".into() };
+        m.generator = Generator::Script {
+            entry: "index.js".into(),
+        };
         let (doc, ids) = doc_with(1);
-        let err = bake(&doc, &request(&m, &ids, json!({}))).unwrap_err().to_string();
+        let err = bake(&doc, &request(&m, &ids, json!({})))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("script"), "got {err}");
     }
 
@@ -592,6 +636,10 @@ mod tests {
         let m = manifest();
         let (doc, ids) = doc_with(2);
         let tl = bake(&doc, &request(&m, &ids, json!({}))).unwrap();
-        assert!(tl.unknown_properties().is_empty(), "got {:?}", tl.unknown_properties());
+        assert!(
+            tl.unknown_properties().is_empty(),
+            "got {:?}",
+            tl.unknown_properties()
+        );
     }
 }

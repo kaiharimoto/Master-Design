@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  core:
+    name: Core crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The studio's Rust shell is a separate workspace and needs a system webview, so
+      # it is not built here. It gets built for real in the release job, on the platforms
+      # it actually ships to.
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build the geometry kernel for WebAssembly
+        run: cargo check -p md-geom --target wasm32-unknown-unknown
+
+  frontend:
+    name: Studio frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @master-design/studio typecheck
+      - run: pnpm --filter @master-design/studio build
+
+  end-to-end:
+    name: End to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the CLI
+        run: cargo build --release -p md-cli
+
+      # Everything a designer and an AI would do, with no GUI: create, patch, animate,
+      # export, and render a frame from inside the animation. If this passes, the
+      # headless half of the product works.
+      - name: Create, edit, animate, export
+        env:
+          MD_ANIMATIONS: packages/md-anim-std/animations
+        run: |
+          set -euo pipefail
+          MD=./target/release/md
+          $MD new /tmp/site --name "CI" --width 1200 --height 800
+
+          ROOT=$($MD query /tmp/site 'type:frame' | head -1 | awk '{print $2}')
+          cat > /tmp/ops.json <<EOF
+          [
+            {"op":"node.insert","parent":"$ROOT","node":{
+              "id":"nd_card","type":"rect","roles":["card"],
+              "width":300,"height":180,"cornerRadius":[16,16,16,16],
+              "transform":[1,0,0,1,100,120],
+              "fills":[{"type":"solid","color":"#ff0055"}]}}
+          ]
+          EOF
+          $MD patch /tmp/site /tmp/ops.json --label "CI content"
+          $MD anim apply /tmp/site std/stagger-fade-up '@card'
+          $MD export /tmp/site --out /tmp/out
+          $MD snapshot /tmp/site --out /tmp/frame.png --time 0.2
+
+          test -s /tmp/out/index.html
+          test -s /tmp/frame.png
+          grep -q 'id="md-animations"' /tmp/out/index.html
+          grep -q 'data-md-fx="nd_card"' /tmp/out/index.html
+          echo "end-to-end pipeline OK"
+
+      - name: The exported page runs in a real browser
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1
+          npx playwright install --with-deps chromium
+          node .github/scripts/check-export.mjs /tmp/out/index.html

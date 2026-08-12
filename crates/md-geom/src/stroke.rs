@@ -52,7 +52,9 @@ pub enum LineJoin {
 /// Expand a stroked path into the filled region it covers.
 pub fn outline_stroke(d: &str, style: &StrokeStyle) -> Result<String, GeomError> {
     if style.width <= 0.0 {
-        return Err(GeomError::InvalidParam("stroke width must be positive".into()));
+        return Err(GeomError::InvalidParam(
+            "stroke width must be positive".into(),
+        ));
     }
 
     let path = parse(d)?;
@@ -86,24 +88,43 @@ mod tests {
 
     #[test]
     fn outlining_a_line_produces_a_band_of_the_stroke_width() {
-        let style = StrokeStyle { width: 4.0, ..Default::default() };
+        let style = StrokeStyle {
+            width: 4.0,
+            ..Default::default()
+        };
         let out = outline_stroke("M 0 0 L 10 0", &style).unwrap();
         let b = bounds(&out).unwrap();
-        assert!((b.h - 4.0).abs() < 0.1, "expected a 4-unit tall band, got {b:?}");
-        assert!((b.w - 10.0).abs() < 0.1, "expected a 10-unit wide band, got {b:?}");
+        assert!(
+            (b.h - 4.0).abs() < 0.1,
+            "expected a 4-unit tall band, got {b:?}"
+        );
+        assert!(
+            (b.w - 10.0).abs() < 0.1,
+            "expected a 10-unit wide band, got {b:?}"
+        );
     }
 
     #[test]
     fn square_caps_extend_past_the_ends() {
-        let style = StrokeStyle { width: 4.0, cap: LineCap::Square, ..Default::default() };
+        let style = StrokeStyle {
+            width: 4.0,
+            cap: LineCap::Square,
+            ..Default::default()
+        };
         let out = outline_stroke("M 0 0 L 10 0", &style).unwrap();
         let b = bounds(&out).unwrap();
-        assert!((b.w - 14.0).abs() < 0.1, "caps should add half a width per end, got {b:?}");
+        assert!(
+            (b.w - 14.0).abs() < 0.1,
+            "caps should add half a width per end, got {b:?}"
+        );
     }
 
     #[test]
     fn zero_width_is_rejected() {
-        let style = StrokeStyle { width: 0.0, ..Default::default() };
+        let style = StrokeStyle {
+            width: 0.0,
+            ..Default::default()
+        };
         assert!(outline_stroke("M 0 0 L 10 0", &style).is_err());
     }
 }

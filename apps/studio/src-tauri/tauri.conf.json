@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Master Design",
+  "version": "0.1.0",
+  "identifier": "com.masterdesign.studio",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Master Design",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 360,
+        "minHeight": 480,
+        "resizable": true,
+        "dragDropEnabled": true,
+        "theme": null
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "deb", "appimage", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../../packages/md-anim-std/animations": "animations"
+    },
+    "copyright": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "Design and build graphic animated websites.",
+    "longDescription": "A design tool for graphic animated websites, built so an AI coding model and a person can edit the same document as equals.",
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    },
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

@@ -47,9 +47,18 @@ impl Default for ProjectMeta {
             // Phone, tablet, desktop. The same three shapes the studio's own UI adapts
             // to, which keeps the tool and the thing it designs speaking one language.
             breakpoints: vec![
-                Breakpoint { name: "sm".into(), min_width: 0.0 },
-                Breakpoint { name: "md".into(), min_width: 768.0 },
-                Breakpoint { name: "lg".into(), min_width: 1280.0 },
+                Breakpoint {
+                    name: "sm".into(),
+                    min_width: 0.0,
+                },
+                Breakpoint {
+                    name: "md".into(),
+                    min_width: 768.0,
+                },
+                Breakpoint {
+                    name: "lg".into(),
+                    min_width: 1280.0,
+                },
             ],
         }
     }
@@ -126,7 +135,10 @@ impl NodeLocation {
         }
         let mut path = self.path.clone();
         path.pop();
-        Some(NodeLocation { page: self.page, path })
+        Some(NodeLocation {
+            page: self.page,
+            path,
+        })
     }
 
     pub fn index_in_parent(&self) -> Option<usize> {
@@ -135,7 +147,13 @@ impl NodeLocation {
 }
 
 impl Page {
-    pub fn new(id: PageId, name: impl Into<String>, slug: impl Into<String>, width: f64, height: f64) -> Self {
+    pub fn new(
+        id: PageId,
+        name: impl Into<String>,
+        slug: impl Into<String>,
+        width: f64,
+        height: f64,
+    ) -> Self {
         let name = name.into();
         let root = Node::new(
             NodeId::new(),
@@ -176,7 +194,10 @@ impl Document {
         let name = name.into();
         Document {
             schema_version: SCHEMA_VERSION,
-            meta: ProjectMeta { name, ..ProjectMeta::default() },
+            meta: ProjectMeta {
+                name,
+                ..ProjectMeta::default()
+            },
             tokens: Tokens::default(),
             pages: vec![Page::new(PageId::new(), "Home", "index", 1440.0, 900.0)],
         }
@@ -184,15 +205,21 @@ impl Document {
 
     /// Look up a page by id or by slug — whichever the caller happens to have.
     pub fn page(&self, key: &str) -> Option<&Page> {
-        self.pages.iter().find(|p| p.id.as_str() == key || p.slug == key)
+        self.pages
+            .iter()
+            .find(|p| p.id.as_str() == key || p.slug == key)
     }
 
     pub fn page_mut(&mut self, key: &str) -> Option<&mut Page> {
-        self.pages.iter_mut().find(|p| p.id.as_str() == key || p.slug == key)
+        self.pages
+            .iter_mut()
+            .find(|p| p.id.as_str() == key || p.slug == key)
     }
 
     pub fn page_index(&self, key: &str) -> Option<usize> {
-        self.pages.iter().position(|p| p.id.as_str() == key || p.slug == key)
+        self.pages
+            .iter()
+            .position(|p| p.id.as_str() == key || p.slug == key)
     }
 
     /// Find where a node lives. `O(n)` over the document, which is microseconds at any
@@ -201,7 +228,10 @@ impl Document {
         for (page_index, page) in self.pages.iter().enumerate() {
             let mut path = Vec::new();
             if locate_in(&page.root, id, &mut path) {
-                return Some(NodeLocation { page: page_index, path });
+                return Some(NodeLocation {
+                    page: page_index,
+                    path,
+                });
             }
         }
         None
@@ -234,7 +264,8 @@ impl Document {
     }
 
     pub fn require_node(&self, id: &NodeId) -> Result<&Node> {
-        self.node(id).ok_or_else(|| DocError::NodeNotFound(id.clone()))
+        self.node(id)
+            .ok_or_else(|| DocError::NodeNotFound(id.clone()))
     }
 
     pub fn parent_of(&self, id: &NodeId) -> Option<&Node> {
@@ -276,7 +307,10 @@ impl Document {
     pub fn duplicate_ids(&self) -> Vec<NodeId> {
         let mut seen: BTreeMap<NodeId, usize> = BTreeMap::new();
         self.walk(&mut |_, n| *seen.entry(n.id.clone()).or_insert(0) += 1);
-        seen.into_iter().filter(|(_, c)| *c > 1).map(|(id, _)| id).collect()
+        seen.into_iter()
+            .filter(|(_, c)| *c > 1)
+            .map(|(id, _)| id)
+            .collect()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -325,7 +359,11 @@ mod tests {
     fn rect(id: &'static str) -> Node {
         Node::new(
             NodeId::from_static(id),
-            NodeKind::Rect(RectGeometry { width: 10.0, height: 10.0, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: 10.0,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
         )
     }
 
@@ -382,7 +420,9 @@ mod tests {
     #[test]
     fn missing_nodes_report_their_id() {
         let doc = doc_with_tree();
-        let err = doc.require_node(&NodeId::from_static("nd_ghost")).unwrap_err();
+        let err = doc
+            .require_node(&NodeId::from_static("nd_ghost"))
+            .unwrap_err();
         assert!(err.to_string().contains("nd_ghost"), "got {err}");
     }
 
@@ -407,8 +447,14 @@ mod tests {
     #[test]
     fn roles_are_indexed_with_counts() {
         let mut doc = doc_with_tree();
-        doc.node_mut(&NodeId::from_static("nd_a")).unwrap().roles.push("card".into());
-        doc.node_mut(&NodeId::from_static("nd_b")).unwrap().roles.push("card".into());
+        doc.node_mut(&NodeId::from_static("nd_a"))
+            .unwrap()
+            .roles
+            .push("card".into());
+        doc.node_mut(&NodeId::from_static("nd_b"))
+            .unwrap()
+            .roles
+            .push("card".into());
         let index = doc.role_index();
         assert_eq!(index.get("card"), Some(&2));
     }

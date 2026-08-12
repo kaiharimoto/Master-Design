@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/studio/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate icons
+        run: pnpm --filter @master-design/studio exec tauri icon src-tauri/icons/icon.svg
+
+      - name: Build
+        working-directory: apps/studio
+        env:
+          # Signs the update manifest. Without these the app still builds and runs — it
+          # just cannot update itself in place, and falls back to opening the release
+          # page. Generate a key with `pnpm tauri signer generate`.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm exec tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            apps/studio/src-tauri/target/release/bundle/nsis/*.exe
+            apps/studio/src-tauri/target/release/bundle/nsis/*.sig
+            apps/studio/src-tauri/target/release/bundle/msi/*.msi
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/studio/src-tauri
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate icons
+        run: pnpm --filter @master-design/studio exec tauri icon src-tauri/icons/icon.svg
+
+      - name: Initialise the Android project
+        working-directory: apps/studio
+        env:
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: pnpm exec tauri android init
+
+      - name: Restore the signing keystore
+        # An unsigned APK cannot be installed as an update over a signed one — Android
+        # treats a different signer as a different app — so a release build without this
+        # secret is not shippable.
+        if: ${{ secrets.ANDROID_KEYSTORE != '' }}
+        working-directory: apps/studio/src-tauri/gen/android
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > keystore.jks
+          cat > keystore.properties <<EOF
+          storeFile=$(pwd)/keystore.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Build
+        working-directory: apps/studio
+        env:
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: pnpm exec tauri android build --apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: apps/studio/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+  publish:
+    name: Publish
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect artifacts and checksums
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' -o -name '*.sig' \) \
+            -exec cp {} release/ \;
+          ls -la release
+
+          # The Android updater reads these out of the release body, because a checksum
+          # that lives in a separate file is a checksum that can go missing.
+          {
+            echo "## Checksums"
+            echo
+            echo "| File | SHA-256 |"
+            echo "| --- | --- |"
+            for f in release/*; do
+              case "$f" in *.sig) continue ;; esac
+              echo "| $(basename "$f") | $(sha256sum "$f" | cut -d' ' -f1) |"
+            done
+          } > release/CHECKSUMS.md
+
+          cat release/CHECKSUMS.md
+
+      - name: Build the update manifest
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+
+          SETUP=$(ls release/*-setup.exe 2>/dev/null | head -1 || true)
+          SIGNATURE=""
+          if [ -n "$SETUP" ] && [ -f "${SETUP}.sig" ]; then
+            SIGNATURE=$(cat "${SETUP}.sig")
+          fi
+
+          cat > release/latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "See the release page for what changed.",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "${BASE}/$(basename "${SETUP:-none}")"
+              }
+            }
+          }
+          EOF
+          cat release/latest.json
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          body_path: release/CHECKSUMS.md
+          append_body: true
+          files: release/*
+          fail_on_unmatched_files: true

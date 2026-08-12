@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Source of truth for every app icon. `pnpm tauri icon icons/icon.svg` renders the
+    .png, .ico and .icns variants the bundler needs; those are build artifacts and are
+    not committed.
+
+    A bezier with its control handles showing: the tool is about curves, and about the
+    handles being editable rather than baked.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff" />
+      <stop offset="1" stop-color="#ff0055" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0e1116" />
+  <rect width="512" height="512" rx="112" fill="url(#bg)" opacity="0.18" />
+
+  <path
+    d="M 116 356 C 176 156 336 156 396 356"
+    fill="none"
+    stroke="url(#bg)"
+    stroke-width="26"
+    stroke-linecap="round"
+  />
+
+  <line x1="116" y1="356" x2="176" y2="216" stroke="#e6edf3" stroke-width="7" opacity="0.55" />
+  <line x1="396" y1="356" x2="336" y2="216" stroke="#e6edf3" stroke-width="7" opacity="0.55" />
+
+  <circle cx="176" cy="216" r="17" fill="#0e1116" stroke="#e6edf3" stroke-width="7" />
+  <circle cx="336" cy="216" r="17" fill="#0e1116" stroke="#e6edf3" stroke-width="7" />
+  <circle cx="116" cy="356" r="23" fill="#e6edf3" />
+  <circle cx="396" cy="356" r="23" fill="#e6edf3" />
+</svg>

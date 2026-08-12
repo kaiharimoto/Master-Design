@@ -9,23 +9,28 @@ use md_doc::history::Session;
 use md_doc::node::{EllipseGeometry, FrameGeometry, NodeKind, RectGeometry};
 use md_doc::patch::apply_ops;
 use md_doc::text::TextGeometry;
-use md_doc::{
-    to_canonical_string, Document, Node, NodeId, Op, PageId, Paint, Transform,
-};
+use md_doc::{to_canonical_string, Document, Node, NodeId, Op, PageId, Paint, Transform};
 use md_geom::BoolOp;
 use serde_json::json;
 
 fn rect(id: &'static str, w: f64, h: f64) -> Node {
     Node::new(
         NodeId::from_static(id),
-        NodeKind::Rect(RectGeometry { width: w, height: h, corner_radius: [0.0; 4] }),
+        NodeKind::Rect(RectGeometry {
+            width: w,
+            height: h,
+            corner_radius: [0.0; 4],
+        }),
     )
 }
 
 fn ellipse(id: &'static str, w: f64, h: f64) -> Node {
     Node::new(
         NodeId::from_static(id),
-        NodeKind::Ellipse(EllipseGeometry { width: w, height: h }),
+        NodeKind::Ellipse(EllipseGeometry {
+            width: w,
+            height: h,
+        }),
     )
 }
 
@@ -62,7 +67,10 @@ fn assert_reversible(mut d: Document, ops: Vec<Op>) -> Document {
     let (inverse, report) = apply_ops(&mut d, &ops).expect("patch should apply");
     assert_eq!(report.applied, ops.len());
     let after = to_canonical_string(&d).unwrap();
-    assert_ne!(before, after, "the patch claimed to apply but changed nothing");
+    assert_ne!(
+        before, after,
+        "the patch claimed to apply but changed nothing"
+    );
 
     let mut undone = d.clone();
     apply_ops(&mut undone, &inverse).expect("inverse should apply");
@@ -140,7 +148,10 @@ fn insert_into_a_leaf_is_refused() {
         }],
     )
     .unwrap_err();
-    assert!(err.to_string().contains("cannot contain children"), "got {err}");
+    assert!(
+        err.to_string().contains("cannot contain children"),
+        "got {err}"
+    );
 }
 
 #[test]
@@ -159,7 +170,12 @@ fn insert_past_the_end_is_refused_rather_than_clamped() {
 
 #[test]
 fn delete_takes_the_whole_subtree_and_restores_it_in_place() {
-    let d = assert_reversible(doc(), vec![Op::NodeDelete { id: NodeId::from_static("nd_group") }]);
+    let d = assert_reversible(
+        doc(),
+        vec![Op::NodeDelete {
+            id: NodeId::from_static("nd_group"),
+        }],
+    );
     assert!(d.node(&NodeId::from_static("nd_a")).is_none());
     assert!(d.node(&NodeId::from_static("nd_group")).is_none());
 }
@@ -169,19 +185,34 @@ fn deleting_a_middle_child_restores_to_the_same_index() {
     let d = doc();
     let restored = {
         let mut working = d.clone();
-        let (inverse, _) =
-            apply_ops(&mut working, &[Op::NodeDelete { id: NodeId::from_static("nd_a") }]).unwrap();
+        let (inverse, _) = apply_ops(
+            &mut working,
+            &[Op::NodeDelete {
+                id: NodeId::from_static("nd_a"),
+            }],
+        )
+        .unwrap();
         apply_ops(&mut working, &inverse).unwrap();
         working
     };
     let group = restored.node(&NodeId::from_static("nd_group")).unwrap();
-    assert_eq!(group.children[0].id.as_str(), "nd_a", "node came back in the wrong position");
+    assert_eq!(
+        group.children[0].id.as_str(),
+        "nd_a",
+        "node came back in the wrong position"
+    );
 }
 
 #[test]
 fn the_page_root_cannot_be_deleted() {
     let mut d = doc();
-    assert!(apply_ops(&mut d, &[Op::NodeDelete { id: NodeId::from_static("nd_root") }]).is_err());
+    assert!(apply_ops(
+        &mut d,
+        &[Op::NodeDelete {
+            id: NodeId::from_static("nd_root")
+        }]
+    )
+    .is_err());
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +238,10 @@ fn update_sets_a_scalar_and_reverses() {
 #[test]
 fn update_reaches_into_arrays() {
     let mut d = doc();
-    d.node_mut(&NodeId::from_static("nd_a")).unwrap().fills.push(Paint::solid("#000000").unwrap());
+    d.node_mut(&NodeId::from_static("nd_a"))
+        .unwrap()
+        .fills
+        .push(Paint::solid("#000000").unwrap());
 
     let d = assert_reversible(
         d,
@@ -228,7 +262,10 @@ fn update_reaches_into_arrays() {
 #[test]
 fn update_validates_against_the_typed_model() {
     let mut d = doc();
-    d.node_mut(&NodeId::from_static("nd_a")).unwrap().fills.push(Paint::solid("#000000").unwrap());
+    d.node_mut(&NodeId::from_static("nd_a"))
+        .unwrap()
+        .fills
+        .push(Paint::solid("#000000").unwrap());
 
     // "chartreuse" is not a hex colour; the round-trip through Color must reject it.
     let err = apply_ops(
@@ -278,8 +315,10 @@ fn a_misspelled_property_is_an_error_not_a_silent_no_op() {
 #[test]
 fn clearing_an_optional_property_with_null_reverses_correctly() {
     let mut d = doc();
-    d.node_mut(&NodeId::from_static("nd_a")).unwrap().a11y =
-        Some(md_doc::A11y { label: Some("Card".into()), ..Default::default() });
+    d.node_mut(&NodeId::from_static("nd_a")).unwrap().a11y = Some(md_doc::A11y {
+        label: Some("Card".into()),
+        ..Default::default()
+    });
 
     let d = assert_reversible(
         d,
@@ -303,7 +342,10 @@ fn setting_a_property_that_was_absent_reverses_by_clearing_it() {
             value: json!(["card"]),
         }],
     );
-    assert_eq!(d.node(&NodeId::from_static("nd_a")).unwrap().roles, vec!["card".to_string()]);
+    assert_eq!(
+        d.node(&NodeId::from_static("nd_a")).unwrap().roles,
+        vec!["card".to_string()]
+    );
 }
 
 #[test]
@@ -338,8 +380,20 @@ fn move_reparents_and_reverses_to_the_original_slot() {
         }],
     );
 
-    assert_eq!(d.parent_of(&NodeId::from_static("nd_a")).unwrap().id.as_str(), "nd_target");
-    assert_eq!(d.node(&NodeId::from_static("nd_group")).unwrap().children.len(), 1);
+    assert_eq!(
+        d.parent_of(&NodeId::from_static("nd_a"))
+            .unwrap()
+            .id
+            .as_str(),
+        "nd_target"
+    );
+    assert_eq!(
+        d.node(&NodeId::from_static("nd_group"))
+            .unwrap()
+            .children
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -465,8 +519,15 @@ fn boolean_accounts_for_operand_transforms() {
 
     // If the transform were ignored, both squares would sit at the origin and the union
     // would be 100 wide instead of 600.
-    let bounds = working.node(&NodeId::from_static("nd_merged")).unwrap().local_bounds().unwrap();
-    assert!((bounds.w - 600.0).abs() < 1.0, "operand transform was dropped: {bounds:?}");
+    let bounds = working
+        .node(&NodeId::from_static("nd_merged"))
+        .unwrap()
+        .local_bounds()
+        .unwrap();
+    assert!(
+        (bounds.w - 600.0).abs() < 1.0,
+        "operand transform was dropped: {bounds:?}"
+    );
 }
 
 #[test]
@@ -486,12 +547,18 @@ fn boolean_needs_at_least_two_nodes() {
 #[test]
 fn boolean_requires_a_shared_parent() {
     let mut d = doc();
-    d.pages[0].root.children.push(rect("nd_outside", 10.0, 10.0));
+    d.pages[0]
+        .root
+        .children
+        .push(rect("nd_outside", 10.0, 10.0));
 
     let err = apply_ops(
         &mut d,
         &[Op::PathBoolean {
-            ids: vec![NodeId::from_static("nd_a"), NodeId::from_static("nd_outside")],
+            ids: vec![
+                NodeId::from_static("nd_a"),
+                NodeId::from_static("nd_outside"),
+            ],
             mode: BoolOp::Union,
             result_id: None,
         }],
@@ -528,22 +595,53 @@ fn boolean_refuses_nodes_with_no_outline() {
 
 #[test]
 fn adding_a_page_is_reversible() {
-    let page = Page::new(PageId::from_static("pg_about"), "About", "about", 1440.0, 900.0);
-    let d = assert_reversible(doc(), vec![Op::PageInsert { page: Box::new(page), index: None }]);
+    let page = Page::new(
+        PageId::from_static("pg_about"),
+        "About",
+        "about",
+        1440.0,
+        900.0,
+    );
+    let d = assert_reversible(
+        doc(),
+        vec![Op::PageInsert {
+            page: Box::new(page),
+            index: None,
+        }],
+    );
     assert_eq!(d.pages.len(), 2);
 }
 
 #[test]
 fn a_duplicate_slug_is_refused() {
     let mut d = doc();
-    let page = Page::new(PageId::from_static("pg_dupe"), "Home again", "index", 100.0, 100.0);
-    assert!(apply_ops(&mut d, &[Op::PageInsert { page: Box::new(page), index: None }]).is_err());
+    let page = Page::new(
+        PageId::from_static("pg_dupe"),
+        "Home again",
+        "index",
+        100.0,
+        100.0,
+    );
+    assert!(apply_ops(
+        &mut d,
+        &[Op::PageInsert {
+            page: Box::new(page),
+            index: None
+        }]
+    )
+    .is_err());
 }
 
 #[test]
 fn the_last_page_cannot_be_deleted() {
     let mut d = doc();
-    assert!(apply_ops(&mut d, &[Op::PageDelete { page: "index".into() }]).is_err());
+    assert!(apply_ops(
+        &mut d,
+        &[Op::PageDelete {
+            page: "index".into()
+        }]
+    )
+    .is_err());
 }
 
 #[test]
@@ -578,7 +676,10 @@ fn page_update_will_not_be_used_to_smuggle_scene_graph_edits() {
 fn tokens_can_be_set_before_their_group_exists() {
     let d = assert_reversible(
         doc(),
-        vec![Op::TokensSet { path: "colors.accent".into(), value: json!("#ff0055") }],
+        vec![Op::TokensSet {
+            path: "colors.accent".into(),
+            value: json!("#ff0055"),
+        }],
     );
     assert_eq!(d.tokens.colors.get("accent").unwrap().as_str(), "#ff0055");
 }
@@ -588,7 +689,10 @@ fn an_invalid_token_value_is_refused() {
     let mut d = doc();
     assert!(apply_ops(
         &mut d,
-        &[Op::TokensSet { path: "colors.accent".into(), value: json!("not-a-colour") }],
+        &[Op::TokensSet {
+            path: "colors.accent".into(),
+            value: json!("not-a-colour")
+        }],
     )
     .is_err());
 }
@@ -615,12 +719,18 @@ fn a_multi_op_patch_that_fails_late_applies_nothing() {
                 path: "width".into(),
                 value: json!(99.0),
             },
-            Op::NodeDelete { id: NodeId::from_static("nd_does_not_exist") },
+            Op::NodeDelete {
+                id: NodeId::from_static("nd_does_not_exist"),
+            },
         ],
     );
 
     assert!(result.is_err());
-    assert_eq!(to_canonical_string(&d).unwrap(), before, "a failed patch left changes behind");
+    assert_eq!(
+        to_canonical_string(&d).unwrap(),
+        before,
+        "a failed patch left changes behind"
+    );
 }
 
 #[test]
@@ -643,7 +753,13 @@ fn ops_within_one_patch_can_build_on_each_other() {
     )
     .unwrap();
 
-    assert_eq!(d.parent_of(&NodeId::from_static("nd_a")).unwrap().id.as_str(), "nd_wrap");
+    assert_eq!(
+        d.parent_of(&NodeId::from_static("nd_a"))
+            .unwrap()
+            .id
+            .as_str(),
+        "nd_wrap"
+    );
 }
 
 #[test]
@@ -685,7 +801,9 @@ fn a_patch_reports_which_nodes_it_touched() {
                 path: "width".into(),
                 value: json!(1.0),
             },
-            Op::NodeDelete { id: NodeId::from_static("nd_b") },
+            Op::NodeDelete {
+                id: NodeId::from_static("nd_b"),
+            },
         ],
     )
     .unwrap();
@@ -722,7 +840,11 @@ fn the_session_wraps_all_of_this_in_one_undoable_step() {
     )
     .unwrap();
 
-    assert_eq!(s.history().depth().0, 1, "three ops should be one undo step");
+    assert_eq!(
+        s.history().depth().0,
+        1,
+        "three ops should be one undo step"
+    );
     s.undo().unwrap();
     assert_eq!(to_canonical_string(s.document()).unwrap(), before);
 }

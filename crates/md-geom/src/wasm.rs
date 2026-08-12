@@ -44,13 +44,19 @@ pub fn transform_path(d: &str, matrix: Vec<f64>) -> Result<String, JsValue> {
     if matrix.len() != 6 {
         return Err(JsValue::from_str("matrix must have exactly 6 components"));
     }
-    let m = [matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]];
+    let m = [
+        matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5],
+    ];
     crate::transform_path(d, m).map_err(err)
 }
 
 #[wasm_bindgen(js_name = hitTestFill)]
 pub fn hit_test_fill(d: &str, x: f64, y: f64, even_odd: bool) -> Result<bool, JsValue> {
-    let rule = if even_odd { FillRule::EvenOdd } else { FillRule::NonZero };
+    let rule = if even_odd {
+        FillRule::EvenOdd
+    } else {
+        FillRule::NonZero
+    };
     crate::hit_test_fill(d, x, y, rule).map_err(err)
 }
 
@@ -114,14 +120,7 @@ pub fn polygon_path(cx: f64, cy: f64, radius: f64, sides: u32, rotation: f64) ->
 }
 
 #[wasm_bindgen(js_name = starPath)]
-pub fn star_path(
-    cx: f64,
-    cy: f64,
-    outer: f64,
-    inner: f64,
-    points: u32,
-    rotation: f64,
-) -> String {
+pub fn star_path(cx: f64, cy: f64, outer: f64, inner: f64, points: u32, rotation: f64) -> String {
     crate::star_path(cx, cy, outer, inner, points, rotation)
 }
 
@@ -147,10 +146,19 @@ pub fn point_at_length(d: &str, distance: f64) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = fitFreehand)]
 pub fn fit_freehand(points: Vec<f64>, tolerance: f64) -> Result<String, JsValue> {
     if points.len() % 2 != 0 {
-        return Err(JsValue::from_str("points must be a flat [x, y, x, y, ...] array"));
+        return Err(JsValue::from_str(
+            "points must be a flat [x, y, x, y, ...] array",
+        ));
     }
     let pts: Vec<[f64; 2]> = points.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
-    let tolerance = if tolerance > 0.0 { tolerance } else { DEFAULT_TOLERANCE };
+    let tolerance = if tolerance > 0.0 {
+        tolerance
+    } else {
+        DEFAULT_TOLERANCE
+    };
     let simplified = crate::simplify_rdp(&pts, tolerance);
-    Ok(crate::to_svg(&crate::fit_cubics(&simplified, tolerance * 2.0)))
+    Ok(crate::to_svg(&crate::fit_cubics(
+        &simplified,
+        tolerance * 2.0,
+    )))
 }

@@ -331,18 +331,26 @@ impl Node {
     pub fn geometry_path(&self) -> Option<String> {
         match &self.kind {
             NodeKind::Path(p) => Some(p.d.clone()),
-            NodeKind::Rect(r) => {
-                Some(md_geom::rect_path(0.0, 0.0, r.width, r.height, r.corner_radius))
-            }
+            NodeKind::Rect(r) => Some(md_geom::rect_path(
+                0.0,
+                0.0,
+                r.width,
+                r.height,
+                r.corner_radius,
+            )),
             NodeKind::Ellipse(e) => Some(md_geom::ellipse_path(
                 e.width / 2.0,
                 e.height / 2.0,
                 e.width / 2.0,
                 e.height / 2.0,
             )),
-            NodeKind::Frame(f) => {
-                Some(md_geom::rect_path(0.0, 0.0, f.width, f.height, f.corner_radius))
-            }
+            NodeKind::Frame(f) => Some(md_geom::rect_path(
+                0.0,
+                0.0,
+                f.width,
+                f.height,
+                f.corner_radius,
+            )),
             NodeKind::Image(i) => Some(md_geom::rect_path(0.0, 0.0, i.width, i.height, [0.0; 4])),
             NodeKind::Text(_) | NodeKind::Group => None,
         }
@@ -364,7 +372,12 @@ impl Node {
                     let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
                     longest as f64 * t.font.font_size * 0.55
                 });
-                Some(Bounds { x: 0.0, y: 0.0, w: width, h: t.height.unwrap_or(height) })
+                Some(Bounds {
+                    x: 0.0,
+                    y: 0.0,
+                    w: width,
+                    h: t.height.unwrap_or(height),
+                })
             }
             NodeKind::Group => {
                 let mut acc: Option<Bounds> = None;
@@ -402,7 +415,12 @@ impl Node {
         let x1 = xs.fold(f64::NEG_INFINITY, f64::max);
         let y0 = ys.clone().fold(f64::INFINITY, f64::min);
         let y1 = ys.fold(f64::NEG_INFINITY, f64::max);
-        Some(Bounds { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+        Some(Bounds {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        })
     }
 
     /// Depth-first walk over this node and its descendants.
@@ -487,7 +505,11 @@ mod tests {
     fn rect(w: f64, h: f64) -> Node {
         Node::new(
             NodeId::from_static("nd_r"),
-            NodeKind::Rect(RectGeometry { width: w, height: h, corner_radius: [0.0; 4] }),
+            NodeKind::Rect(RectGeometry {
+                width: w,
+                height: h,
+                corner_radius: [0.0; 4],
+            }),
         )
     }
 
@@ -496,14 +518,27 @@ mod tests {
         let v = serde_json::to_value(rect(10.0, 20.0)).unwrap();
         assert_eq!(v["type"], "rect");
         assert_eq!(v["width"], 10.0);
-        assert!(v.get("kind").is_none(), "kind should be flattened away: {v}");
+        assert!(
+            v.get("kind").is_none(),
+            "kind should be flattened away: {v}"
+        );
     }
 
     #[test]
     fn defaults_do_not_reach_the_file() {
         let json = serde_json::to_string(&rect(10.0, 20.0)).unwrap();
-        for noisy in ["visible", "locked", "opacity", "blendMode", "transform", "children"] {
-            assert!(!json.contains(noisy), "{noisy} should have been skipped: {json}");
+        for noisy in [
+            "visible",
+            "locked",
+            "opacity",
+            "blendMode",
+            "transform",
+            "children",
+        ] {
+            assert!(
+                !json.contains(noisy),
+                "{noisy} should have been skipped: {json}"
+            );
         }
     }
 
@@ -544,10 +579,16 @@ mod tests {
     fn ellipse_is_centred_in_its_box() {
         let n = Node::new(
             NodeId::from_static("nd_e"),
-            NodeKind::Ellipse(EllipseGeometry { width: 40.0, height: 20.0 }),
+            NodeKind::Ellipse(EllipseGeometry {
+                width: 40.0,
+                height: 20.0,
+            }),
         );
         let b = n.local_bounds().unwrap();
-        assert!((b.w - 40.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05, "got {b:?}");
+        assert!(
+            (b.w - 40.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05,
+            "got {b:?}"
+        );
         assert!(b.x.abs() < 0.05 && b.y.abs() < 0.05, "got {b:?}");
     }
 

@@ -50,9 +50,7 @@ pub fn canonicalize(value: Value) -> Value {
     match value {
         Value::Number(n) => match n.as_f64() {
             // Integers are already exact; only floats need taming.
-            Some(f) if n.as_i64().is_none() && n.as_u64().is_none() => {
-                Value::from(quantize(f))
-            }
+            Some(f) if n.as_i64().is_none() && n.as_u64().is_none() => Value::from(quantize(f)),
             _ => Value::Number(n),
         },
         Value::Array(a) => Value::Array(a.into_iter().map(canonicalize).collect()),
@@ -82,7 +80,8 @@ fn quantize(v: f64) -> f64 {
 /// Only when it contains nothing nested — a list of numbers, strings or booleans.
 /// Nesting means real structure, and real structure is easier to read expanded.
 fn is_inlinable(a: &[Value]) -> bool {
-    a.iter().all(|v| !matches!(v, Value::Array(_) | Value::Object(_)))
+    a.iter()
+        .all(|v| !matches!(v, Value::Array(_) | Value::Object(_)))
 }
 
 fn write_value(out: &mut String, v: &Value, indent: usize) {

@@ -24,6 +24,11 @@ use md_geom::BoolOp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// `node.insert` carries a whole subtree and is much larger than the other variants.
+// Boxing it would even the sizes out and cost every call site — including every one an
+// AI writes as JSON — an extra indirection, for a type that is constructed a handful of
+// times per patch and never in a hot loop.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op")]
 pub enum Op {
@@ -42,7 +47,11 @@ pub enum Op {
     /// Set one property, addressed by a dotted path such as `fills.0.color` or
     /// `width`. A `null` value clears an optional property.
     #[serde(rename = "node.update", rename_all = "camelCase")]
-    NodeUpdate { id: NodeId, path: String, value: Value },
+    NodeUpdate {
+        id: NodeId,
+        path: String,
+        value: Value,
+    },
 
     /// Reparent and/or reorder. Also how "bring to front" is expressed.
     #[serde(rename = "node.move", rename_all = "camelCase")]
@@ -77,11 +86,18 @@ pub enum Op {
 
     /// Set a property on a page — `name`, `slug`, `width`, `background`, and so on.
     #[serde(rename = "page.update", rename_all = "camelCase")]
-    PageUpdate { page: String, path: String, value: Value },
+    PageUpdate {
+        page: String,
+        path: String,
+        value: Value,
+    },
 
     /// Add or replace a timeline, matched by id.
     #[serde(rename = "timeline.set", rename_all = "camelCase")]
-    TimelineSet { page: String, timeline: Box<Timeline> },
+    TimelineSet {
+        page: String,
+        timeline: Box<Timeline>,
+    },
 
     #[serde(rename = "timeline.remove", rename_all = "camelCase")]
     TimelineRemove { page: String, id: TimelineId },
@@ -158,13 +174,19 @@ pub fn apply_ops(doc: &mut Document, ops: &[Op]) -> Result<(Vec<Op>, PatchReport
 
 fn apply_one(doc: &mut Document, op: &Op, report: &mut PatchReport) -> Result<Vec<Op>> {
     match op {
-        Op::NodeInsert { parent, index, node } => insert_node(doc, parent, *index, node, report),
+        Op::NodeInsert {
+            parent,
+            index,
+            node,
+        } => insert_node(doc, parent, *index, node, report),
         Op::NodeDelete { id } => delete_node(doc, id, report),
         Op::NodeUpdate { id, path, value } => update_node(doc, id, path, value, report),
         Op::NodeMove { id, parent, index } => move_node(doc, id, parent, *index, report),
-        Op::PathBoolean { ids, mode, result_id } => {
-            path_boolean(doc, ids, *mode, result_id.clone(), report)
-        }
+        Op::PathBoolean {
+            ids,
+            mode,
+            result_id,
+        } => path_boolean(doc, ids, *mode, result_id.clone(), report),
         Op::PageInsert { page, index } => insert_page(doc, page, *index),
         Op::PageDelete { page } => delete_page(doc, page),
         Op::PageUpdate { page, path, value } => update_page(doc, page, path, value),
@@ -193,8 +215,12 @@ fn insert_node(
         }
     }
 
-    let loc = doc.locate(parent).ok_or_else(|| DocError::NodeNotFound(parent.clone()))?;
-    let parent_node = doc.node_at_mut(&loc).ok_or_else(|| DocError::NodeNotFound(parent.clone()))?;
+    let loc = doc
+        .locate(parent)
+        .ok_or_else(|| DocError::NodeNotFound(parent.clone()))?;
+    let parent_node = doc
+        .node_at_mut(&loc)
+        .ok_or_else(|| DocError::NodeNotFound(parent.clone()))?;
     if !parent_node.is_container() {
         return Err(DocError::NotAContainer(parent.clone()));
     }
@@ -207,11 +233,15 @@ fn insert_node(
 
     parent_node.children.insert(at, node.clone());
     report.touch(&node.id);
-    Ok(vec![Op::NodeDelete { id: node.id.clone() }])
+    Ok(vec![Op::NodeDelete {
+        id: node.id.clone(),
+    }])
 }
 
 fn delete_node(doc: &mut Document, id: &NodeId, report: &mut PatchReport) -> Result<Vec<Op>> {
-    let loc = doc.locate(id).ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
+    let loc = doc
+        .locate(id)
+        .ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
     if loc.is_root() {
         return Err(DocError::RootIsImmovable);
     }
@@ -222,11 +252,17 @@ fn delete_node(doc: &mut Document, id: &NodeId, report: &mut PatchReport) -> Res
         .id
         .clone();
 
-    let parent = doc.node_at_mut(&parent_loc).ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
+    let parent = doc
+        .node_at_mut(&parent_loc)
+        .ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
     let removed = parent.children.remove(index);
     report.touch(id);
 
-    Ok(vec![Op::NodeInsert { parent: parent_id, index: Some(index), node: removed }])
+    Ok(vec![Op::NodeInsert {
+        parent: parent_id,
+        index: Some(index),
+        node: removed,
+    }])
 }
 
 fn update_node(
@@ -236,7 +272,9 @@ fn update_node(
     value: &Value,
     report: &mut PatchReport,
 ) -> Result<Vec<Op>> {
-    let node = doc.node_mut(id).ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
+    let node = doc
+        .node_mut(id)
+        .ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
 
     let mut tree = serde_json::to_value(&*node)?;
     let previous = set_path(&mut tree, path, value.clone())?;
@@ -273,7 +311,9 @@ fn move_node(
     index: Option<usize>,
     report: &mut PatchReport,
 ) -> Result<Vec<Op>> {
-    let loc = doc.locate(id).ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
+    let loc = doc
+        .locate(id)
+        .ok_or_else(|| DocError::NodeNotFound(id.clone()))?;
     if loc.is_root() {
         return Err(DocError::RootIsImmovable);
     }
@@ -281,12 +321,20 @@ fn move_node(
     // Moving a node inside its own subtree would detach that subtree from the document.
     let subtree = doc.require_node(id)?;
     if subtree.find(new_parent).is_some() {
-        return Err(DocError::CyclicMove { parent: id.clone(), child: new_parent.clone() });
+        return Err(DocError::CyclicMove {
+            parent: id.clone(),
+            child: new_parent.clone(),
+        });
     }
 
-    let target_loc =
-        doc.locate(new_parent).ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
-    if !doc.node_at(&target_loc).map(|n| n.is_container()).unwrap_or(false) {
+    let target_loc = doc
+        .locate(new_parent)
+        .ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
+    if !doc
+        .node_at(&target_loc)
+        .map(|n| n.is_container())
+        .unwrap_or(false)
+    {
         return Err(DocError::NotAContainer(new_parent.clone()));
     }
 
@@ -305,10 +353,12 @@ fn move_node(
     };
 
     // The removal may have shifted indices inside the destination, so re-locate it.
-    let target_loc =
-        doc.locate(new_parent).ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
-    let target =
-        doc.node_at_mut(&target_loc).ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
+    let target_loc = doc
+        .locate(new_parent)
+        .ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
+    let target = doc
+        .node_at_mut(&target_loc)
+        .ok_or_else(|| DocError::NodeNotFound(new_parent.clone()))?;
     let len = target.children.len();
     let at = index.unwrap_or(len).min(len);
     target.children.insert(at, node);
@@ -339,11 +389,17 @@ fn path_boolean(
     // single answer to where the result belongs.
     let locs: Vec<NodeLocation> = ids
         .iter()
-        .map(|id| doc.locate(id).ok_or_else(|| DocError::NodeNotFound(id.clone())))
+        .map(|id| {
+            doc.locate(id)
+                .ok_or_else(|| DocError::NodeNotFound(id.clone()))
+        })
         .collect::<Result<_>>()?;
 
     let first_parent = locs[0].parent().ok_or(DocError::RootIsImmovable)?;
-    if locs.iter().any(|l| l.parent().as_ref() != Some(&first_parent)) {
+    if locs
+        .iter()
+        .any(|l| l.parent().as_ref() != Some(&first_parent))
+    {
         return Err(DocError::InvalidValue {
             path: "ids".into(),
             reason: "all nodes in a boolean operation must share a parent".into(),
@@ -375,7 +431,10 @@ fn path_boolean(
 
     let mut result = Node::new(
         result_id.unwrap_or_else(NodeId::new),
-        NodeKind::Path(PathGeometry { d: combined, fill_rule: Default::default() }),
+        NodeKind::Path(PathGeometry {
+            d: combined,
+            fill_rule: Default::default(),
+        }),
     );
     result.name = template.name.clone();
     result.fills = template.fills.clone();
@@ -431,7 +490,9 @@ fn insert_page(doc: &mut Document, page: &Page, index: Option<usize>) -> Result<
         return Err(DocError::IndexOutOfRange { index: at, len });
     }
     doc.pages.insert(at, page.clone());
-    Ok(vec![Op::PageDelete { page: page.id.as_str().to_string() }])
+    Ok(vec![Op::PageDelete {
+        page: page.id.as_str().to_string(),
+    }])
 }
 
 fn delete_page(doc: &mut Document, key: &str) -> Result<Vec<Op>> {
@@ -441,13 +502,20 @@ fn delete_page(doc: &mut Document, key: &str) -> Result<Vec<Op>> {
             reason: "a project must keep at least one page".into(),
         });
     }
-    let index = doc.page_index(key).ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
+    let index = doc
+        .page_index(key)
+        .ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
     let removed = doc.pages.remove(index);
-    Ok(vec![Op::PageInsert { page: Box::new(removed), index: Some(index) }])
+    Ok(vec![Op::PageInsert {
+        page: Box::new(removed),
+        index: Some(index),
+    }])
 }
 
 fn update_page(doc: &mut Document, key: &str, path: &str, value: &Value) -> Result<Vec<Op>> {
-    let index = doc.page_index(key).ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
+    let index = doc
+        .page_index(key)
+        .ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
 
     if path == "root" || path.starts_with("root.") {
         return Err(DocError::InvalidValue {
@@ -472,32 +540,47 @@ fn update_page(doc: &mut Document, key: &str, path: &str, value: &Value) -> Resu
 }
 
 fn set_timeline(doc: &mut Document, key: &str, timeline: &Timeline) -> Result<Vec<Op>> {
-    let index = doc.page_index(key).ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
+    let index = doc
+        .page_index(key)
+        .ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
     let page = &mut doc.pages[index];
 
     match page.timelines.iter().position(|t| t.id == timeline.id) {
         Some(at) => {
             let previous = std::mem::replace(&mut page.timelines[at], timeline.clone());
-            Ok(vec![Op::TimelineSet { page: key.to_string(), timeline: Box::new(previous) }])
+            Ok(vec![Op::TimelineSet {
+                page: key.to_string(),
+                timeline: Box::new(previous),
+            }])
         }
         None => {
             page.timelines.push(timeline.clone());
-            Ok(vec![Op::TimelineRemove { page: key.to_string(), id: timeline.id.clone() }])
+            Ok(vec![Op::TimelineRemove {
+                page: key.to_string(),
+                id: timeline.id.clone(),
+            }])
         }
     }
 }
 
 fn remove_timeline(doc: &mut Document, key: &str, id: &TimelineId) -> Result<Vec<Op>> {
-    let index = doc.page_index(key).ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
+    let index = doc
+        .page_index(key)
+        .ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
     let page = &mut doc.pages[index];
-    let at = page.timelines.iter().position(|t| &t.id == id).ok_or_else(|| {
-        DocError::InvalidValue {
+    let at = page
+        .timelines
+        .iter()
+        .position(|t| &t.id == id)
+        .ok_or_else(|| DocError::InvalidValue {
             path: "id".into(),
             reason: format!("no timeline {id} on page '{key}'"),
-        }
-    })?;
+        })?;
     let removed = page.timelines.remove(at);
-    Ok(vec![Op::TimelineSet { page: key.to_string(), timeline: Box::new(removed) }])
+    Ok(vec![Op::TimelineSet {
+        page: key.to_string(),
+        timeline: Box::new(removed),
+    }])
 }
 
 fn set_tokens(doc: &mut Document, path: &str, value: &Value) -> Result<Vec<Op>> {
@@ -507,7 +590,8 @@ fn set_tokens(doc: &mut Document, path: &str, value: &Value) -> Result<Vec<Op>> 
     // known, so an absent group is unambiguous.
     if let Value::Object(map) = &mut tree {
         for group in ["colors", "fonts", "spacing"] {
-            map.entry(group.to_string()).or_insert_with(|| Value::Object(Default::default()));
+            map.entry(group.to_string())
+                .or_insert_with(|| Value::Object(Default::default()));
         }
     }
 
@@ -559,9 +643,14 @@ fn set_path(tree: &mut Value, path: &str, value: Value) -> Result<Option<Value>>
             }
         }
         Value::Array(arr) => {
-            let i: usize = last.parse().map_err(|_| DocError::NoSuchProperty(path.to_string()))?;
+            let i: usize = last
+                .parse()
+                .map_err(|_| DocError::NoSuchProperty(path.to_string()))?;
             if i >= arr.len() {
-                return Err(DocError::IndexOutOfRange { index: i, len: arr.len() });
+                return Err(DocError::IndexOutOfRange {
+                    index: i,
+                    len: arr.len(),
+                });
             }
             Ok(Some(std::mem::replace(&mut arr[i], value)))
         }
@@ -571,13 +660,16 @@ fn set_path(tree: &mut Value, path: &str, value: Value) -> Result<Option<Value>>
 
 fn descend<'a>(cursor: &'a mut Value, seg: &str, full: &str) -> Result<&'a mut Value> {
     match cursor {
-        Value::Object(map) => {
-            map.get_mut(seg).ok_or_else(|| DocError::NoSuchProperty(full.to_string()))
-        }
+        Value::Object(map) => map
+            .get_mut(seg)
+            .ok_or_else(|| DocError::NoSuchProperty(full.to_string())),
         Value::Array(arr) => {
-            let i: usize = seg.parse().map_err(|_| DocError::NoSuchProperty(full.to_string()))?;
+            let i: usize = seg
+                .parse()
+                .map_err(|_| DocError::NoSuchProperty(full.to_string()))?;
             let len = arr.len();
-            arr.get_mut(i).ok_or(DocError::IndexOutOfRange { index: i, len })
+            arr.get_mut(i)
+                .ok_or(DocError::IndexOutOfRange { index: i, len })
         }
         _ => Err(DocError::NoSuchProperty(full.to_string())),
     }

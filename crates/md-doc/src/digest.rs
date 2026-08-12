@@ -72,13 +72,23 @@ pub fn digest(doc: &Document, opts: &DigestOptions) -> String {
         if !doc.tokens.fonts.is_empty() {
             parts.push(format!(
                 "fonts: {}",
-                doc.tokens.fonts.keys().cloned().collect::<Vec<_>>().join(" ")
+                doc.tokens
+                    .fonts
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ")
             ));
         }
         if !doc.tokens.spacing.is_empty() {
             parts.push(format!(
                 "spacing: {}",
-                doc.tokens.spacing.keys().cloned().collect::<Vec<_>>().join(" ")
+                doc.tokens
+                    .spacing
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ")
             ));
         }
         for p in parts {
@@ -92,7 +102,13 @@ pub fn digest(doc: &Document, opts: &DigestOptions) -> String {
     if !roles.is_empty() {
         let listed = roles
             .iter()
-            .map(|(r, c)| if *c == 1 { format!("@{r}") } else { format!("@{r}×{c}") })
+            .map(|(r, c)| {
+                if *c == 1 {
+                    format!("@{r}")
+                } else {
+                    format!("@{r}×{c}")
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ");
         let _ = writeln!(out, "  roles: {listed}");
@@ -190,7 +206,7 @@ fn write_node(out: &mut String, node: &Node, depth: usize, opts: &DigestOptions)
         NodeKind::Path(p) => {
             // Anchor count is the useful summary; the actual path data is rarely what a
             // model needs and is always the longest thing in the file.
-            let anchors = p.d.matches(|c| c == 'C' || c == 'L' || c == 'M').count();
+            let anchors = p.d.matches(['C', 'L', 'M']).count();
             let _ = write!(line, " {anchors} segments");
         }
         NodeKind::Group => {}
@@ -203,7 +219,12 @@ fn write_node(out: &mut String, node: &Node, depth: usize, opts: &DigestOptions)
         }
     }
     if let Some(stroke) = node.strokes.first() {
-        let _ = write!(line, " stroke:{}@{}", paint_summary(&stroke.paint), num(stroke.width));
+        let _ = write!(
+            line,
+            " stroke:{}@{}",
+            paint_summary(&stroke.paint),
+            num(stroke.width)
+        );
     }
     if !node.transform.is_identity() {
         let d = node.transform.decompose();
@@ -336,18 +357,31 @@ mod tests {
     #[test]
     fn nodes_show_type_id_role_and_size() {
         let out = digest(&doc(), &DigestOptions::default());
-        assert!(out.contains("rect nd_card @card 320×200 r:12 fill:#ffffff"), "got:\n{out}");
-        assert!(out.contains("text nd_title @hero-title \"Design in motion\" 48px/400 Inter"), "got:\n{out}");
+        assert!(
+            out.contains("rect nd_card @card 320×200 r:12 fill:#ffffff"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("text nd_title @hero-title \"Design in motion\" 48px/400 Inter"),
+            "got:\n{out}"
+        );
     }
 
     #[test]
     fn depth_limit_summarizes_rather_than_truncates_silently() {
         let mut d = doc();
-        let deep = Node::new(NodeId::from_static("nd_deep"), NodeKind::Group)
-            .with_children(vec![Node::new(NodeId::from_static("nd_deeper"), NodeKind::Group)]);
+        let deep = Node::new(NodeId::from_static("nd_deep"), NodeKind::Group).with_children(vec![
+            Node::new(NodeId::from_static("nd_deeper"), NodeKind::Group),
+        ]);
         d.pages[0].root.children.push(deep);
 
-        let out = digest(&d, &DigestOptions { max_depth: 1, ..Default::default() });
+        let out = digest(
+            &d,
+            &DigestOptions {
+                max_depth: 1,
+                ..Default::default()
+            },
+        );
         assert!(out.contains("more node(s) below this depth"), "got:\n{out}");
     }
 
@@ -379,7 +413,10 @@ mod tests {
         });
 
         let out = digest(&d, &DigestOptions::default());
-        assert!(out.contains("← std/stagger-fade-up@1.0.0 on @card"), "got:\n{out}");
+        assert!(
+            out.contains("← std/stagger-fade-up@1.0.0 on @card"),
+            "got:\n{out}"
+        );
     }
 
     #[test]
@@ -397,7 +434,13 @@ mod tests {
 
     #[test]
     fn page_filter_selects_one_page() {
-        let out = digest(&doc(), &DigestOptions { page: Some("nope".into()), ..Default::default() });
+        let out = digest(
+            &doc(),
+            &DigestOptions {
+                page: Some("nope".into()),
+                ..Default::default()
+            },
+        );
         assert!(!out.contains("page \""), "got:\n{out}");
     }
 }

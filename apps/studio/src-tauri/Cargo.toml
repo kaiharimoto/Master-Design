@@ -1,0 +1,52 @@
+# Deliberately its own workspace rather than a member of the root one.
+#
+# The core crates are portable and compile anywhere; this one needs a system webview,
+# an Android NDK, or both. Keeping it separate means `cargo test --workspace` at the
+# repository root stays runnable on a plain Linux box with no GUI libraries installed —
+# which is where CI runs the tests that matter for the document model.
+[workspace]
+
+[package]
+name = "md-studio"
+description = "Master Design studio: the desktop and mobile editor."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/kaiharimoto/Master-Design"
+
+[lib]
+name = "md_studio_lib"
+# staticlib and cdylib are what the Android and iOS harnesses link against; rlib is for
+# the desktop binary. Tauri's mobile support needs all three.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+md-anim = { path = "../../../crates/md-anim" }
+md-doc = { path = "../../../crates/md-doc" }
+md-emit = { path = "../../../crates/md-emit" }
+md-geom = { path = "../../../crates/md-geom" }
+md-mcp = { path = "../../../crates/md-mcp" }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+semver = "1"
+sha2 = "0.10"
+ureq = { version = "2", features = ["json", "tls"] }
+
+# The bundled updater is desktop-only: it swaps a signed binary in place, which is not a
+# thing Android permits. See src/updater.rs for the APK path.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
+[features]
+# Used by `tauri build --features custom-protocol`.
+custom-protocol = ["tauri/custom-protocol"]

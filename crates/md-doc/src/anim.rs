@@ -119,7 +119,10 @@ pub mod properties {
     /// Properties that compose into a single CSS `transform`, and so must be emitted
     /// together rather than as independent declarations.
     pub fn is_transform(name: &str) -> bool {
-        matches!(name, TRANSLATE_X | TRANSLATE_Y | SCALE | SCALE_X | SCALE_Y | ROTATE)
+        matches!(
+            name,
+            TRANSLATE_X | TRANSLATE_Y | SCALE | SCALE_X | SCALE_Y | ROTATE
+        )
     }
 }
 
@@ -135,7 +138,10 @@ pub enum Trigger {
     /// Runs when the element scrolls into view.
     View {
         /// Fraction of the element that must be visible, 0..1.
-        #[serde(default = "default_threshold", skip_serializing_if = "is_default_threshold")]
+        #[serde(
+            default = "default_threshold",
+            skip_serializing_if = "is_default_threshold"
+        )]
         threshold: f64,
         #[serde(default = "yes", skip_serializing_if = "is_yes")]
         once: bool,
@@ -328,7 +334,11 @@ impl Track {
             let (a, b) = (&pair[0], &pair[1]);
             if p >= a.t && p <= b.t {
                 let span = b.t - a.t;
-                let local = if span.abs() < f64::EPSILON { 0.0 } else { (p - a.t) / span };
+                let local = if span.abs() < f64::EPSILON {
+                    0.0
+                } else {
+                    (p - a.t) / span
+                };
                 return Some(interpolate(&a.value, &b.value, a.easing.apply(local)));
             }
         }
@@ -343,7 +353,11 @@ impl Timeline {
     /// animation — the thing that makes `doc.snapshot` useful to a model checking its
     /// own work rather than just a picture of the resting state.
     pub fn sample(&self, time: f64) -> BTreeMap<NodeId, BTreeMap<String, Value>> {
-        let p = if self.duration > 0.0 { (time / self.duration).clamp(0.0, 1.0) } else { 1.0 };
+        let p = if self.duration > 0.0 {
+            (time / self.duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.sample_progress(p)
     }
 
@@ -355,7 +369,9 @@ impl Timeline {
         }
         for track in &self.tracks {
             if let Some(v) = track.sample(p) {
-                out.entry(track.target.clone()).or_default().insert(track.property.clone(), v);
+                out.entry(track.target.clone())
+                    .or_default()
+                    .insert(track.property.clone(), v);
             }
         }
         out
@@ -386,20 +402,21 @@ pub fn interpolate(a: &Value, b: &Value, f: f64) -> Value {
             let (x, y) = (x.as_f64().unwrap_or(0.0), y.as_f64().unwrap_or(0.0));
             Value::from(x + (y - x) * f)
         }
-        (Value::String(x), Value::String(y)) => {
-            match (Color::parse(x), Color::parse(y)) {
-                (Ok(cx), Ok(cy)) => Value::String(lerp_color(&cx, &cy, f)),
-                _ => {
-                    if f < 0.5 {
-                        a.clone()
-                    } else {
-                        b.clone()
-                    }
+        (Value::String(x), Value::String(y)) => match (Color::parse(x), Color::parse(y)) {
+            (Ok(cx), Ok(cy)) => Value::String(lerp_color(&cx, &cy, f)),
+            _ => {
+                if f < 0.5 {
+                    a.clone()
+                } else {
+                    b.clone()
                 }
             }
-        }
+        },
         (Value::Array(x), Value::Array(y)) if x.len() == y.len() => Value::Array(
-            x.iter().zip(y.iter()).map(|(xi, yi)| interpolate(xi, yi, f)).collect(),
+            x.iter()
+                .zip(y.iter())
+                .map(|(xi, yi)| interpolate(xi, yi, f))
+                .collect(),
         ),
         _ => {
             if f < 0.5 {
@@ -463,8 +480,16 @@ mod tests {
             target: NodeId::from_static("nd_a"),
             property: prop.to_string(),
             keyframes: vec![
-                Keyframe { t: 0.0, value: Value::from(from), easing: Easing::Linear },
-                Keyframe { t: 1.0, value: Value::from(to), easing: Easing::Linear },
+                Keyframe {
+                    t: 0.0,
+                    value: Value::from(from),
+                    easing: Easing::Linear,
+                },
+                Keyframe {
+                    t: 1.0,
+                    value: Value::from(to),
+                    easing: Easing::Linear,
+                },
             ],
         }
     }
@@ -478,7 +503,12 @@ mod tests {
 
     #[test]
     fn easing_curves_are_pinned_at_both_ends() {
-        for e in [Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut, Easing::CubicBezier([0.7, 0.0, 0.3, 1.0])] {
+        for e in [
+            Easing::EaseIn,
+            Easing::EaseOut,
+            Easing::EaseInOut,
+            Easing::CubicBezier([0.7, 0.0, 0.3, 1.0]),
+        ] {
             assert!(e.apply(0.0).abs() < 1e-6, "{e:?} did not start at 0");
             assert!((e.apply(1.0) - 1.0).abs() < 1e-6, "{e:?} did not end at 1");
         }
@@ -512,11 +542,7 @@ mod tests {
 
     #[test]
     fn colours_blend_per_channel() {
-        let v = interpolate(
-            &Value::from("#000000"),
-            &Value::from("#ffffff"),
-            0.5,
-        );
+        let v = interpolate(&Value::from("#000000"), &Value::from("#ffffff"), 0.5);
         assert_eq!(v.as_str().unwrap(), "#808080");
     }
 
@@ -579,10 +605,19 @@ mod tests {
     fn triggers_round_trip() {
         for t in [
             Trigger::Load { delay: 0.5 },
-            Trigger::View { threshold: 0.5, once: false },
-            Trigger::Scroll { start: 0.0, end: 1.0 },
+            Trigger::View {
+                threshold: 0.5,
+                once: false,
+            },
+            Trigger::Scroll {
+                start: 0.0,
+                end: 1.0,
+            },
             Trigger::Hover,
-            Trigger::Loop { iterations: None, alternate: true },
+            Trigger::Loop {
+                iterations: None,
+                alternate: true,
+            },
         ] {
             let json = serde_json::to_string(&t).unwrap();
             let back: Trigger = serde_json::from_str(&json).unwrap();

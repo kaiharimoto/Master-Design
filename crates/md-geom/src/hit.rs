@@ -72,7 +72,13 @@ pub fn nearest_point_on_path(d: &str, x: f64, y: f64) -> Result<NearestPoint, Ge
         let p = seg.eval(n.t);
         let distance = n.distance_sq.sqrt();
         if best.as_ref().is_none_or(|b| distance < b.distance) {
-            best = Some(NearestPoint { x: p.x, y: p.y, distance, segment: i, t: n.t });
+            best = Some(NearestPoint {
+                x: p.x,
+                y: p.y,
+                distance,
+                segment: i,
+                t: n.t,
+            });
         }
     }
 

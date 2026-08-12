@@ -16,10 +16,20 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    pub const ZERO: Bounds = Bounds { x: 0.0, y: 0.0, w: 0.0, h: 0.0 };
+    pub const ZERO: Bounds = Bounds {
+        x: 0.0,
+        y: 0.0,
+        w: 0.0,
+        h: 0.0,
+    };
 
     pub fn from_kurbo(r: kurbo::Rect) -> Self {
-        Bounds { x: r.x0, y: r.y0, w: r.width(), h: r.height() }
+        Bounds {
+            x: r.x0,
+            y: r.y0,
+            w: r.width(),
+            h: r.height(),
+        }
     }
 
     pub fn contains(&self, x: f64, y: f64) -> bool {
@@ -28,7 +38,12 @@ impl Bounds {
 
     /// Grow the box on every side. Used to give stroke width and touch slop some room.
     pub fn inflate(&self, by: f64) -> Bounds {
-        Bounds { x: self.x - by, y: self.y - by, w: self.w + by * 2.0, h: self.h + by * 2.0 }
+        Bounds {
+            x: self.x - by,
+            y: self.y - by,
+            w: self.w + by * 2.0,
+            h: self.h + by * 2.0,
+        }
     }
 
     pub fn union(&self, other: &Bounds) -> Bounds {
@@ -36,7 +51,12 @@ impl Bounds {
         let y0 = self.y.min(other.y);
         let x1 = (self.x + self.w).max(other.x + other.w);
         let y1 = (self.y + self.h).max(other.y + other.h);
-        Bounds { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+        Bounds {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        }
     }
 }
 
@@ -171,7 +191,11 @@ pub fn flatten_path(d: &str, tolerance: f64) -> Result<Vec<Vec<[f64; 2]>>, GeomE
 }
 
 pub(crate) fn flatten_bez(path: &BezPath, tolerance: f64) -> Vec<Vec<[f64; 2]>> {
-    let tolerance = if tolerance > 0.0 { tolerance } else { DEFAULT_TOLERANCE };
+    let tolerance = if tolerance > 0.0 {
+        tolerance
+    } else {
+        DEFAULT_TOLERANCE
+    };
     let mut subpaths: Vec<Vec<[f64; 2]>> = Vec::new();
     let mut current: Vec<[f64; 2]> = Vec::new();
     let mut start: Option<[f64; 2]> = None;
@@ -216,7 +240,10 @@ pub(crate) fn flatten_bez(path: &BezPath, tolerance: f64) -> Vec<Vec<[f64; 2]>> 
 /// motion-along-path needs to map progress to distance.
 pub fn path_length(d: &str) -> Result<f64, GeomError> {
     let path = parse(d)?;
-    Ok(path.segments().map(|seg| seg.arclen(DEFAULT_TOLERANCE)).sum())
+    Ok(path
+        .segments()
+        .map(|seg| seg.arclen(DEFAULT_TOLERANCE))
+        .sum())
 }
 
 /// Point and unit tangent at a given distance along the path.
@@ -244,8 +271,11 @@ pub fn point_at_length(d: &str, distance: f64) -> Result<([f64; 2], [f64; 2]), G
             let dx = ahead.x - behind.x;
             let dy = ahead.y - behind.y;
             let mag = (dx * dx + dy * dy).sqrt();
-            let tangent =
-                if mag > f64::EPSILON { [dx / mag, dy / mag] } else { [1.0, 0.0] };
+            let tangent = if mag > f64::EPSILON {
+                [dx / mag, dy / mag]
+            } else {
+                [1.0, 0.0]
+            };
             return Ok(([p.x, p.y], tangent));
         }
         walked += len;
@@ -277,7 +307,15 @@ mod tests {
     #[test]
     fn bounds_of_a_unit_square() {
         let b = bounds("M 0 0 L 10 0 L 10 10 L 0 10 Z").unwrap();
-        assert_eq!(b, Bounds { x: 0.0, y: 0.0, w: 10.0, h: 10.0 });
+        assert_eq!(
+            b,
+            Bounds {
+                x: 0.0,
+                y: 0.0,
+                w: 10.0,
+                h: 10.0
+            }
+        );
     }
 
     #[test]

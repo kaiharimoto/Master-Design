@@ -11,7 +11,7 @@
 
 use md_doc::node::{Node, NodeKind};
 use md_doc::paint::{Effect, Paint, StrokeAlign};
-use md_doc::{Color, Document, Page, Stroke};
+use md_doc::{Color, Page, Stroke};
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
@@ -29,12 +29,18 @@ pub struct SvgWriter<'a> {
 
 impl<'a> SvgWriter<'a> {
     pub fn new(dashed: &'a BTreeSet<String>, animated: &'a BTreeSet<String>) -> Self {
-        SvgWriter { defs: String::new(), counter: 0, dashed, animated, warnings: Vec::new() }
+        SvgWriter {
+            defs: String::new(),
+            counter: 0,
+            dashed,
+            animated,
+            warnings: Vec::new(),
+        }
     }
 
     /// Render a whole page, returning the `<svg>` element.
-    pub fn page(&mut self, doc: &Document, page: &Page) -> String {
-        let body = self.node(&page.root, doc);
+    pub fn page(&mut self, page: &Page) -> String {
+        let body = self.node(&page.root);
 
         let background = page
             .background
@@ -50,8 +56,11 @@ impl<'a> SvgWriter<'a> {
             })
             .unwrap_or_default();
 
-        let defs =
-            if self.defs.is_empty() { String::new() } else { format!("<defs>{}</defs>", self.defs) };
+        let defs = if self.defs.is_empty() {
+            String::new()
+        } else {
+            format!("<defs>{}</defs>", self.defs)
+        };
 
         format!(
             "<svg class=\"md-canvas\" viewBox=\"0 0 {} {}\" xmlns=\"http://www.w3.org/2000/svg\" \
@@ -68,47 +77,38 @@ impl<'a> SvgWriter<'a> {
     }
 
     /// Render one node and its subtree.
-    pub fn node(&mut self, node: &Node, doc: &Document) -> String {
+    pub fn node(&mut self, node: &Node) -> String {
         if !node.visible {
             return String::new();
         }
 
         let inner = match &node.kind {
             NodeKind::Group | NodeKind::Frame(_) => {
-                let children: String =
-                    node.children.iter().map(|c| self.node(c, doc)).collect::<Vec<_>>().join("");
+                let children: String = node
+                    .children
+                    .iter()
+                    .map(|c| self.node(c))
+                    .collect::<Vec<_>>()
+                    .join("");
                 match &node.kind {
                     NodeKind::Frame(f) => {
                         // A frame's own fill is a rectangle behind its children.
                         let mut out = String::new();
                         if !node.fills.is_empty() {
-                            let shape = md_geom::rect_path(
-                                0.0,
-                                0.0,
-                                f.width,
-                                f.height,
-                                f.corner_radius,
-                            );
+                            let shape =
+                                md_geom::rect_path(0.0, 0.0, f.width, f.height, f.corner_radius);
                             out.push_str(&self.shape_with_paints(node, &shape, ""));
                         }
                         if f.clip {
                             let clip_id = self.next_id("clip");
-                            let shape = md_geom::rect_path(
-                                0.0,
-                                0.0,
-                                f.width,
-                                f.height,
-                                f.corner_radius,
-                            );
+                            let shape =
+                                md_geom::rect_path(0.0, 0.0, f.width, f.height, f.corner_radius);
                             let _ = write!(
                                 self.defs,
                                 "<clipPath id=\"{clip_id}\"><path d=\"{}\"/></clipPath>",
                                 esc_attr(&shape)
                             );
-                            let _ = write!(
-                                out,
-                                "<g clip-path=\"url(#{clip_id})\">{children}</g>"
-                            );
+                            let _ = write!(out, "<g clip-path=\"url(#{clip_id})\">{children}</g>");
                         } else {
                             out.push_str(&children);
                         }
@@ -166,15 +166,11 @@ impl<'a> SvgWriter<'a> {
         if !node.name.is_empty() {
             let _ = write!(attrs, " data-md-name=\"{}\"", esc_attr(&node.name));
         }
-        for role in &node.roles {
-            // Roles become classes so exported CSS and hand-written CSS can both reach them.
-            let _ = write!(attrs, " data-md-role=\"{}\"", esc_attr(role));
-            break;
-        }
-        if node.roles.len() > 1 {
+        if let Some(primary) = node.roles.first() {
+            // The first role gets its own attribute, for selectors that want exactly one;
+            // all of them land in `class`, so exported and hand-written CSS can reach any.
+            let _ = write!(attrs, " data-md-role=\"{}\"", esc_attr(primary));
             let _ = write!(attrs, " class=\"{}\"", esc_attr(&node.roles.join(" ")));
-        } else if let Some(r) = node.roles.first() {
-            let _ = write!(attrs, " class=\"{}\"", esc_attr(r));
         }
 
         if let Some(t) = node.transform.to_svg_attr() {
@@ -184,7 +180,11 @@ impl<'a> SvgWriter<'a> {
             let _ = write!(attrs, " opacity=\"{}\"", num(node.opacity));
         }
         if node.blend_mode != md_doc::BlendMode::Normal {
-            let _ = write!(attrs, " style=\"mix-blend-mode:{}\"", node.blend_mode.as_css());
+            let _ = write!(
+                attrs,
+                " style=\"mix-blend-mode:{}\"",
+                node.blend_mode.as_css()
+            );
         }
         if !node.effects.is_empty() {
             let id = self.filter(&node.effects);
@@ -198,7 +198,10 @@ impl<'a> SvgWriter<'a> {
         // replace the node's placement matrix and teleport it to the origin. Giving the
         // animation its own element to own outright avoids the collision entirely.
         let inner = if self.animated.contains(node.id.as_str()) {
-            format!("<g data-md-fx=\"{}\">{inner}</g>", esc_attr(node.id.as_str()))
+            format!(
+                "<g data-md-fx=\"{}\">{inner}</g>",
+                esc_attr(node.id.as_str())
+            )
         } else {
             inner
         };
@@ -225,12 +228,12 @@ impl<'a> SvgWriter<'a> {
         for (i, fill) in node.fills.iter().enumerate() {
             let paint = self.paint_value(fill, &format!("{}-f{i}", node.id));
             let opacity = fill.opacity();
-            let op_attr =
-                if opacity < 1.0 { format!(" fill-opacity=\"{}\"", num(opacity)) } else { String::new() };
-            let _ = write!(
-                out,
-                "<path d=\"{esc}\" fill=\"{paint}\"{op_attr}{extra}/>"
-            );
+            let op_attr = if opacity < 1.0 {
+                format!(" fill-opacity=\"{}\"", num(opacity))
+            } else {
+                String::new()
+            };
+            let _ = write!(out, "<path d=\"{esc}\" fill=\"{paint}\"{op_attr}{extra}/>");
         }
 
         for (i, stroke) in node.strokes.iter().enumerate() {
@@ -254,10 +257,7 @@ impl<'a> SvgWriter<'a> {
             match md_geom::outline_stroke(d, &stroke.style()) {
                 Ok(outlined) => {
                     let paint = self.paint_value(&stroke.paint, &format!("{}-s{index}", node.id));
-                    return format!(
-                        "<path d=\"{}\" fill=\"{paint}\"/>",
-                        esc_attr(&outlined)
-                    );
+                    return format!("<path d=\"{}\" fill=\"{paint}\"/>", esc_attr(&outlined));
                 }
                 Err(e) => self.warnings.push(format!(
                     "{}: could not outline a {:?}-aligned stroke ({e}); drew it centred",
@@ -330,7 +330,11 @@ impl<'a> SvgWriter<'a> {
             let _ = write!(attrs, " font-style=\"italic\"");
         }
         if f.letter_spacing != 0.0 {
-            let _ = write!(attrs, " letter-spacing=\"{}\"", num(f.letter_spacing * f.font_size));
+            let _ = write!(
+                attrs,
+                " letter-spacing=\"{}\"",
+                num(f.letter_spacing * f.font_size)
+            );
         }
         if anchor != "start" {
             let _ = write!(attrs, " text-anchor=\"{anchor}\"");
@@ -383,7 +387,9 @@ impl<'a> SvgWriter<'a> {
     fn paint_value(&mut self, paint: &Paint, hint: &str) -> String {
         match paint {
             Paint::Solid { color, .. } => color.hex_rgb(),
-            Paint::LinearGradient { from, to, stops, .. } => {
+            Paint::LinearGradient {
+                from, to, stops, ..
+            } => {
                 let id = format!("grad-{}-{}", sanitize(hint), self.bump());
                 let _ = write!(
                     self.defs,
@@ -396,7 +402,12 @@ impl<'a> SvgWriter<'a> {
                 );
                 format!("url(#{id})")
             }
-            Paint::RadialGradient { center, radius, stops, .. } => {
+            Paint::RadialGradient {
+                center,
+                radius,
+                stops,
+                ..
+            } => {
                 let id = format!("grad-{}-{}", sanitize(hint), self.bump());
                 let _ = write!(
                     self.defs,
@@ -434,7 +445,12 @@ impl<'a> SvgWriter<'a> {
                         num(radius / 2.0)
                     );
                 }
-                Effect::DropShadow { dx, dy, blur, color } => {
+                Effect::DropShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
                     let _ = write!(
                         body,
                         "<feDropShadow dx=\"{}\" dy=\"{}\" stdDeviation=\"{}\" flood-color=\"{}\" flood-opacity=\"{}\"/>",
@@ -445,7 +461,12 @@ impl<'a> SvgWriter<'a> {
                         num(color.alpha())
                     );
                 }
-                Effect::InnerShadow { dx, dy, blur, color } => {
+                Effect::InnerShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
                     // Composited from the inverse of the source alpha; SVG has no
                     // primitive for this, so it is built out of the ones it does have.
                     let _ = write!(
@@ -498,7 +519,15 @@ fn stops_markup(stops: &[md_doc::GradientStop]) -> String {
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 pub fn num(v: f64) -> String {
@@ -506,7 +535,9 @@ pub fn num(v: f64) -> String {
 }
 
 pub fn esc_text(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub fn esc_attr(s: &str) -> String {

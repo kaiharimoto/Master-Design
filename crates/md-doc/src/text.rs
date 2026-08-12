@@ -9,7 +9,7 @@
 use crate::paint::Paint;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextGeometry {
     /// The text itself. Newlines are hard breaks.
@@ -39,20 +39,6 @@ pub struct TextGeometry {
     pub spans: Vec<TextSpan>,
 }
 
-impl Default for TextGeometry {
-    fn default() -> Self {
-        TextGeometry {
-            content: String::new(),
-            font: FontSpec::default(),
-            align: TextAlign::default(),
-            width: None,
-            height: None,
-            vertical_align: VerticalAlign::default(),
-            spans: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FontSpec {
@@ -67,7 +53,10 @@ pub struct FontSpec {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub letter_spacing: f64,
     /// Multiple of the font size.
-    #[serde(default = "default_line_height", skip_serializing_if = "is_default_line_height")]
+    #[serde(
+        default = "default_line_height",
+        skip_serializing_if = "is_default_line_height"
+    )]
     pub line_height: f64,
     #[serde(default, skip_serializing_if = "is_default_case")]
     pub text_case: TextCase,
@@ -253,7 +242,10 @@ mod tests {
     fn font_fields_are_flattened_not_nested() {
         let t = TextGeometry::new("Hi", "Inter", 24.0);
         let v = serde_json::to_value(&t).unwrap();
-        assert!(v.get("fontSize").is_some(), "expected fontSize at the top level: {v}");
+        assert!(
+            v.get("fontSize").is_some(),
+            "expected fontSize at the top level: {v}"
+        );
         assert!(v.get("font").is_none());
     }
 

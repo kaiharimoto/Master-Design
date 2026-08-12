@@ -52,7 +52,12 @@ pub mod codes {
 
 impl Response {
     pub fn ok(id: Value, result: Value) -> Self {
-        Response { jsonrpc: "2.0", id, result: Some(result), error: None }
+        Response {
+            jsonrpc: "2.0",
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn err(id: Value, code: i32, message: impl Into<String>) -> Self {
@@ -60,7 +65,11 @@ impl Response {
             jsonrpc: "2.0",
             id,
             result: None,
-            error: Some(RpcError { code, message: message.into(), data: None }),
+            error: Some(RpcError {
+                code,
+                message: message.into(),
+                data: None,
+            }),
         }
     }
 }
