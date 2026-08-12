@@ -247,6 +247,80 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Write a brand-new project: the document, the directories it will grow into, and the
+/// `.mcp.json` that lets an agent attach.
+///
+/// One function rather than a sequence every entry point repeats, because the studio and
+/// `md new` were already drifting — the studio created `animations/` and the CLI created
+/// it too, but only one of them would have gained `.mcp.json` if this were left to the
+/// call sites.
+///
+/// Returns the paths of anything created beyond the document itself, so a caller can tell
+/// the user what it did.
+pub fn scaffold_project(dir: &Path, doc: &Document, server_command: &str) -> Result<Vec<PathBuf>> {
+    save_project(dir, doc)?;
+
+    let mut extras = Vec::new();
+
+    let animations = dir.join(ANIMATIONS_DIR);
+    fs::create_dir_all(&animations)?;
+    extras.push(animations);
+
+    if let Some(path) = write_mcp_config(dir, server_command)? {
+        extras.push(path);
+    }
+
+    Ok(extras)
+}
+
+// ---------------------------------------------------------------------------
+// Attaching an agent
+// ---------------------------------------------------------------------------
+
+/// The file MCP clients look for when they open a folder.
+pub const MCP_CONFIG_FILE: &str = ".mcp.json";
+
+/// Name the server announces itself under. Short, because it is typed.
+pub const MCP_SERVER_NAME: &str = "master-design";
+
+/// Write `.mcp.json` so that pointing an agent at this folder is the whole setup.
+///
+/// The alternative was a paragraph of documentation telling people to hand-write a JSON
+/// file with a path in it, which is a step every single user would have to complete
+/// correctly before the product's central feature did anything at all. The file is small,
+/// it is inert to anything that does not look for it, and it makes the answer to "how do
+/// I connect Claude to this?" be "open the folder".
+///
+/// `server_command` is what actually launches the bridge — an absolute path to the
+/// bundled `md` binary when the studio can find one, and the bare name `md` otherwise,
+/// which works if it is on `PATH`.
+///
+/// An existing file is left alone. It may have been edited to add other servers, or to
+/// point at a different build, and silently overwriting that would be the sort of thing
+/// that makes people distrust a tool touching their directory.
+pub fn write_mcp_config(dir: &Path, server_command: &str) -> Result<Option<PathBuf>> {
+    let path = dir.join(MCP_CONFIG_FILE);
+    if path.exists() {
+        return Ok(None);
+    }
+    fs::create_dir_all(dir)?;
+
+    // `.` rather than the absolute project path: a project directory is meant to travel
+    // — through git, between a desktop and a laptop — and an absolute path baked into a
+    // committed file breaks on the second machine.
+    let config = serde_json::json!({
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "command": server_command,
+                "args": ["mcp", "."],
+            }
+        }
+    });
+
+    write_atomic(&path, &to_canonical_string(&config)?)?;
+    Ok(Some(path))
+}
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -620,5 +694,43 @@ mod tests {
         assert_eq!(sanitize("../../etc/passwd"), "etc-passwd");
         assert_eq!(sanitize(""), "page");
         assert_eq!(sanitize("///"), "page");
+    }
+
+    #[test]
+    fn a_new_project_can_be_opened_by_an_agent_with_no_setup() {
+        let dir = tmpdir("mcp-config");
+        let written = write_mcp_config(&dir, "md").unwrap().unwrap();
+
+        let raw = fs::read_to_string(&written).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let server = &config["mcpServers"][MCP_SERVER_NAME];
+        assert_eq!(server["command"], "md");
+        assert_eq!(server["args"], serde_json::json!(["mcp", "."]));
+    }
+
+    #[test]
+    fn the_project_path_is_relative_so_the_folder_can_move() {
+        // An absolute path here would break the moment the project was cloned onto a
+        // second machine, which is the normal case for a design travelling through git.
+        let dir = tmpdir("mcp-relative");
+        write_mcp_config(&dir, "md").unwrap();
+        let raw = fs::read_to_string(dir.join(MCP_CONFIG_FILE)).unwrap();
+        assert!(
+            !raw.contains(dir.to_string_lossy().as_ref()),
+            "the config baked in an absolute path: {raw}"
+        );
+    }
+
+    #[test]
+    fn an_existing_config_is_never_overwritten() {
+        let dir = tmpdir("mcp-existing");
+        let path = dir.join(MCP_CONFIG_FILE);
+        fs::write(&path, "{\"mcpServers\":{\"mine\":{}}}").unwrap();
+
+        assert!(
+            write_mcp_config(&dir, "md").unwrap().is_none(),
+            "reported writing a file it should have left alone"
+        );
+        assert!(fs::read_to_string(&path).unwrap().contains("mine"));
     }
 }

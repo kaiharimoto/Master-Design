@@ -45,6 +45,15 @@ interface State {
   live: Record<NodeId, Matrix>;
   /** Timeline being scrubbed, and where. */
   playhead: { timelineId: string | null; time: number; playing: boolean };
+  /**
+   * Something worth telling the person that is not a failure — an export that finished,
+   * with whatever the exporter had to say about it.
+   *
+   * Separate from `error` rather than a severity field on one slot, because the two have
+   * different lifetimes: an error stays until it is dismissed, a notice with warnings in
+   * it should too, and a notice with nothing to report can fade.
+   */
+  notice: { text: string; detail: string[] } | null;
 }
 
 const [state, setState] = createStore<State>({
@@ -55,6 +64,7 @@ const [state, setState] = createStore<State>({
   selection: [],
   live: {},
   playhead: { timelineId: null, time: 0, playing: false },
+  notice: null,
 });
 
 const [viewport, setViewport] = createSignal<Viewport>({ x: 0, y: 0, scale: 1 });
@@ -255,6 +265,30 @@ export const actions = {
   async save() {
     const editor = await run(() => ipc.project.save());
     if (editor) adopt(editor);
+  },
+
+  /**
+   * Build the static site.
+   *
+   * The output is the actual deliverable — HTML, CSS, SVG and the animation runtime, no
+   * framework and no build step — so this is the moment a design becomes a website. It
+   * writes to `dist/` inside the project unless told otherwise.
+   *
+   * Warnings are shown rather than logged. They are the exporter saying "I could not
+   * compile this animation property" or "I approximated that stroke alignment", which is
+   * precisely what someone about to publish needs to know.
+   */
+  async exportSite(out?: string) {
+    const result = await run(() => ipc.project.export(out));
+    if (!result) return;
+
+    const kb = Math.max(1, Math.round(result.bytes / 1024));
+    const pages = result.files.filter((f) => f.endsWith(".html")).length;
+    setState("notice", {
+      text: `Exported ${pages} page${pages === 1 ? "" : "s"} — ${kb} kB`,
+      detail: result.warnings,
+    });
+    return result;
   },
 
   /** Pick up changes made outside the app — most often by an AI over MCP. */
@@ -483,6 +517,10 @@ export const actions = {
 
   dismissError() {
     setState("error", null);
+  },
+
+  dismissNotice() {
+    setState("notice", null);
   },
 };
 

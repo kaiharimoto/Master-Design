@@ -203,6 +203,25 @@ impl Document {
         }
     }
 
+    /// A new document whose first page is a given size, on a white ground.
+    ///
+    /// Both the CLI and the studio create projects, and both were setting the page size,
+    /// resizing the root frame to match, and choosing a background separately. Missing
+    /// the root-frame half leaves a page whose artboard and whose content frame disagree
+    /// — everything lays out against 1440×900 no matter what the page says — and that is
+    /// exactly the kind of bug that appears in one entry point and not the other.
+    pub fn sized(name: impl Into<String>, width: f64, height: f64) -> Result<Self> {
+        let mut doc = Document::new(name);
+        doc.pages[0].width = width;
+        doc.pages[0].height = height;
+        if let NodeKind::Frame(frame) = &mut doc.pages[0].root.kind {
+            frame.width = width;
+            frame.height = height;
+        }
+        doc.pages[0].background = Some(Paint::solid("#ffffff")?);
+        Ok(doc)
+    }
+
     /// Look up a page by id or by slug — whichever the caller happens to have.
     pub fn page(&self, key: &str) -> Option<&Page> {
         self.pages

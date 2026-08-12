@@ -1,102 +1,36 @@
-//! The studio's backend.
+//! The studio's Tauri surface.
 //!
-//! The document lives here, not in the webview. Every change — a mouse drag, a menu
-//! command, a patch that arrived over MCP — goes through the same `md-doc` operations,
-//! the same validator and the same undo stack. The frontend holds a reactive mirror and
-//! asks; it never edits its copy directly.
+//! The document lives in the backend, not in the webview. Every change — a mouse drag, a
+//! menu command, a patch that arrived over MCP — goes through the same `md-doc`
+//! operations, the same validator and the same undo stack. The frontend holds a reactive
+//! mirror and asks; it never edits its copy directly.
 //!
-//! That is the whole reason this file is thin. Almost every command below is a few
-//! lines of translation over a core crate, because the core crates are where the
-//! behaviour is, and because those crates are also what `md-cli` and the MCP server use.
-//! One implementation, three front ends.
+//! This file is deliberately dull. Each command takes its lock, converts whatever the
+//! webview sent into typed values, and calls one method on [`core::Studio`]. The reason
+//! for the split is testability: a `#[tauri::command]` needs a runtime and a window to
+//! run at all, so anything that lives inside one is unreachable from a test. If you are
+//! about to write a branch in this file, it belongs in `core.rs`.
+//!
+//! The exceptions are the three things that are genuinely Tauri's: resolving the bundled
+//! resource directory, starting the filesystem watcher, and the updater.
 
+mod core;
 mod updater;
 mod watch;
 
-use md_anim::Registry;
-use md_doc::history::Session;
+use crate::core::{EditorState, ExportResult, PackageInfo, PatchResult, Studio};
 use md_doc::patch::Op;
-use md_doc::storage::{self, Request, RequestStatus};
-use md_doc::{Document, NodeId, Selector};
-use serde::Serialize;
+use md_doc::NodeId;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use tauri::{Manager, State};
-
-/// Everything an open project needs.
-struct Studio {
-    session: Session,
-    project_dir: PathBuf,
-    registry: Registry,
-    /// Whether there are changes the file on disk does not have.
-    dirty: bool,
-    /// Dropping this stops the watcher, which is exactly what should happen when a
-    /// different project is opened over the top of this one.
-    _watcher: Option<Box<dyn std::any::Any + Send>>,
-}
 
 #[derive(Default)]
 struct AppState {
     studio: Mutex<Option<Studio>>,
-    /// Shared with the watcher thread so a save can mark itself as ours without taking
-    /// the editor lock the watcher would otherwise contend on.
-    gate: Arc<watch::WatchGate>,
-}
-
-/// What the frontend mirrors.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EditorState {
-    document: Option<Document>,
-    project_path: Option<String>,
-    revision: u64,
-    can_undo: bool,
-    can_redo: bool,
-    undo_label: Option<String>,
-    redo_label: Option<String>,
-    dirty: bool,
-}
-
-impl EditorState {
-    fn empty() -> Self {
-        EditorState {
-            document: None,
-            project_path: None,
-            revision: 0,
-            can_undo: false,
-            can_redo: false,
-            undo_label: None,
-            redo_label: None,
-            dirty: false,
-        }
-    }
-
-    fn of(studio: &Studio) -> Self {
-        let history = studio.session.history();
-        EditorState {
-            document: Some(studio.session.document().clone()),
-            project_path: Some(studio.project_dir.display().to_string()),
-            revision: studio.session.revision(),
-            can_undo: history.can_undo(),
-            can_redo: history.can_redo(),
-            undo_label: history.undo_label().map(String::from),
-            redo_label: history.redo_label().map(String::from),
-            dirty: studio.dirty,
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, String>;
-
-/// Write the project, marking the write as ours first.
-///
-/// Every save goes through here. The marking is not optional: without it the watcher
-/// sees the studio's own save, reloads, and throws away the undo history for a change
-/// the user just made.
-fn save(studio: &Studio, gate: &watch::WatchGate) -> Result<()> {
-    gate.mark_self_write();
-    storage::save_project(&studio.project_dir, studio.session.document()).map_err(|e| e.to_string())
-}
 
 fn with_studio<T>(state: &State<AppState>, f: impl FnOnce(&mut Studio) -> Result<T>) -> Result<T> {
     let mut guard = state
@@ -130,16 +64,59 @@ fn standard_animations(app: &tauri::AppHandle) -> Option<PathBuf> {
     }
 }
 
-fn load_registry(app: &tauri::AppHandle, project: &Path) -> Registry {
-    let mut registry = Registry::new();
-    if let Some(std_dir) = standard_animations(app) {
-        registry.load_dir(&std_dir, md_anim::Origin::Standard);
+/// What to put in a new project's `.mcp.json` as the command that starts the bridge.
+///
+/// A packaged studio ships the `md` binary beside itself, and naming it by absolute path
+/// means an agent attaches with nothing installed. Failing that we fall back to the bare
+/// name, which works whenever the CLI is on `PATH` — and when it is neither, the file is
+/// still a correct description of what to run, which is better than no file at all.
+fn mcp_server_command(app: &tauri::AppHandle) -> String {
+    let exe_name = if cfg!(windows) { "md.exe" } else { "md" };
+
+    let beside_executable = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(exe_name)));
+    let in_resources = app.path().resource_dir().ok().map(|d| d.join(exe_name));
+
+    [beside_executable, in_resources]
+        .into_iter()
+        .flatten()
+        .find(|p| p.is_file())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "md".to_string())
+}
+
+/// Open a project into the app state, watcher and all.
+///
+/// Shared by the `project_open` command, `project_create`, and the `--project` argument,
+/// because "a project is now open" has to mean the same thing however it happened —
+/// including being watched, which was the part most likely to be forgotten.
+fn open_into_state(
+    app: &tauri::AppHandle,
+    state: &State<AppState>,
+    path: &Path,
+) -> Result<EditorState> {
+    let mut studio = Studio::open(path, standard_animations(app).as_deref())?;
+
+    // Attached before the state is swapped in, so there is no window in which the project
+    // is open but unwatched.
+    match watch::watch_project(
+        app.clone(),
+        studio.project_dir().to_path_buf(),
+        studio.gate(),
+    ) {
+        Ok(handle) => studio.attach_watcher(handle),
+        // Watching is a convenience, not a precondition for editing. Losing it means AI
+        // edits need a manual reload, which is worth a warning and not a refusal.
+        Err(e) => eprintln!("could not watch {}: {e}", studio.project_dir().display()),
     }
-    registry.load_dir(
-        &project.join(storage::ANIMATIONS_DIR),
-        md_anim::Origin::Project,
-    );
-    registry
+
+    let snapshot = studio.state();
+    *state
+        .studio
+        .lock()
+        .map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
+    Ok(snapshot)
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +131,7 @@ fn editor_state(state: State<AppState>) -> Result<EditorState> {
         .map_err(|_| "editor state is poisoned".to_string())?;
     Ok(guard
         .as_ref()
-        .map(EditorState::of)
+        .map(Studio::state)
         .unwrap_or_else(EditorState::empty))
 }
 
@@ -164,42 +141,7 @@ fn project_open(
     state: State<AppState>,
     path: String,
 ) -> Result<EditorState> {
-    let dir = PathBuf::from(&path);
-    let root = if storage::is_project_dir(&dir) {
-        dir
-    } else {
-        storage::find_project_root(&dir)
-            .ok_or_else(|| format!("{path} is not a Master Design project"))?
-    };
-
-    let doc = storage::load_project(&root).map_err(|e| e.to_string())?;
-    let registry = load_registry(&app, &root);
-
-    // Started before the state is swapped in, so there is no window in which the
-    // project is open but unwatched.
-    let watcher = match watch::watch_project(app.clone(), root.clone(), state.gate.clone()) {
-        Ok(handle) => Some(handle),
-        Err(e) => {
-            // Watching is a convenience, not a precondition for editing. Losing it means
-            // AI edits need a manual reload, which is worth a warning and not a refusal.
-            eprintln!("could not watch {}: {e}", root.display());
-            None
-        }
-    };
-
-    let studio = Studio {
-        session: Session::new(doc),
-        project_dir: root,
-        registry,
-        dirty: false,
-        _watcher: watcher,
-    };
-    let snapshot = EditorState::of(&studio);
-    *state
-        .studio
-        .lock()
-        .map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
-    Ok(snapshot)
+    open_into_state(&app, &state, Path::new(&path))
 }
 
 #[tauri::command]
@@ -212,138 +154,60 @@ fn project_create(
     height: f64,
 ) -> Result<EditorState> {
     let root = PathBuf::from(&path);
-    if storage::is_project_dir(&root) {
-        return Err(format!("{path} already contains a project"));
-    }
-
-    let mut doc = Document::new(&name);
-    doc.pages[0].width = width;
-    doc.pages[0].height = height;
-    if let md_doc::NodeKind::Frame(frame) = &mut doc.pages[0].root.kind {
-        frame.width = width;
-        frame.height = height;
-    }
-    doc.pages[0].background = Some(md_doc::Paint::solid("#ffffff").map_err(|e| e.to_string())?);
-
-    storage::save_project(&root, &doc).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(root.join(storage::ANIMATIONS_DIR)).map_err(|e| e.to_string())?;
-
-    project_open(app, state, root.display().to_string())
+    // Created and immediately dropped: `open_into_state` reopens it with a watcher
+    // attached, so there is exactly one code path that puts a project into app state.
+    Studio::create(
+        &root,
+        &name,
+        width,
+        height,
+        standard_animations(&app).as_deref(),
+        &mcp_server_command(&app),
+    )?;
+    open_into_state(&app, &state, &root)
 }
 
 #[tauri::command]
 fn project_save(state: State<AppState>) -> Result<EditorState> {
-    let gate = state.gate.clone();
     with_studio(&state, |studio| {
-        save(studio, &gate)?;
-        studio.dirty = false;
-        Ok(EditorState::of(studio))
+        studio.save()?;
+        Ok(studio.state())
     })
 }
 
-/// Re-read from disk, discarding unsaved changes.
-///
-/// This is how an edit made over MCP reaches the canvas: the server writes the project,
-/// the studio reloads it. Undo history is dropped because it describes a document that
-/// no longer exists — keeping it would let one Ctrl+Z reinstate a state the file has
-/// moved past.
+/// Re-read from disk, discarding unsaved changes. This is how an edit made over MCP
+/// reaches the canvas.
 #[tauri::command]
 fn project_reload(app: tauri::AppHandle, state: State<AppState>) -> Result<EditorState> {
-    let path = with_studio(&state, |studio| {
-        Ok(studio.project_dir.display().to_string())
-    })?;
-    project_open(app, state, path)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportResult {
-    files: Vec<String>,
-    bytes: usize,
-    warnings: Vec<String>,
+    let standard = standard_animations(&app);
+    with_studio(&state, |studio| {
+        studio.reload(standard.as_deref())?;
+        Ok(studio.state())
+    })
 }
 
 #[tauri::command]
 fn project_export(state: State<AppState>, out: Option<String>) -> Result<ExportResult> {
-    with_studio(&state, |studio| {
-        let target = out
-            .map(PathBuf::from)
-            .unwrap_or_else(|| studio.project_dir.join("dist"));
-
-        let opts = md_emit::ExportOptions {
-            assets_from: Some(studio.project_dir.join(storage::ASSETS_DIR)),
-            ..Default::default()
-        };
-
-        let report = md_emit::export(studio.session.document(), &target, &opts)
-            .map_err(|e| e.to_string())?;
-
-        Ok(ExportResult {
-            files: report
-                .files
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect(),
-            bytes: report.bytes,
-            warnings: report.warnings,
-        })
-    })
+    with_studio(&state, |studio| studio.export(out.map(PathBuf::from)))
 }
 
 // ---------------------------------------------------------------------------
 // Editing
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PatchResult {
-    state: EditorState,
-    report: md_doc::PatchReport,
-}
-
 #[tauri::command]
 fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<PatchResult> {
-    let gate = state.gate.clone();
-    with_studio(&state, |studio| {
-        let report = studio
-            .session
-            .apply(label, ops)
-            .map_err(|e| e.to_string())?;
-        studio.dirty = true;
-
-        // Saved eagerly. The alternative — holding changes in memory until someone
-        // presses Save — would mean an attached AI reading a stale project off disk,
-        // and would lose work when the operating system reclaims the app on mobile.
-        if let Err(e) = save(studio, &gate) {
-            return Err(format!("the change applied but could not be saved: {e}"));
-        }
-        studio.dirty = false;
-
-        Ok(PatchResult {
-            state: EditorState::of(studio),
-            report,
-        })
-    })
+    with_studio(&state, |studio| studio.patch(label, ops))
 }
 
 #[tauri::command]
 fn doc_undo(state: State<AppState>) -> Result<EditorState> {
-    let gate = state.gate.clone();
-    with_studio(&state, |studio| {
-        studio.session.undo().map_err(|e| e.to_string())?;
-        let _ = save(studio, &gate);
-        Ok(EditorState::of(studio))
-    })
+    with_studio(&state, Studio::undo)
 }
 
 #[tauri::command]
 fn doc_redo(state: State<AppState>) -> Result<EditorState> {
-    let gate = state.gate.clone();
-    with_studio(&state, |studio| {
-        studio.session.redo().map_err(|e| e.to_string())?;
-        let _ = save(studio, &gate);
-        Ok(EditorState::of(studio))
-    })
+    with_studio(&state, Studio::redo)
 }
 
 #[tauri::command]
@@ -352,17 +216,7 @@ fn doc_query(
     selector: String,
     page: Option<String>,
 ) -> Result<Vec<String>> {
-    with_studio(&state, |studio| {
-        let parsed = Selector::parse(&selector).map_err(|e| e.to_string())?;
-        let doc = studio.session.document();
-        let ids = match page {
-            Some(key) => parsed
-                .select_in_page(doc, &key)
-                .map_err(|e| e.to_string())?,
-            None => parsed.select(doc),
-        };
-        Ok(ids.iter().map(|i| i.as_str().to_string()).collect())
-    })
+    with_studio(&state, |studio| studio.query(&selector, page.as_deref()))
 }
 
 /// Mint ids in the backend so they match the document's format exactly.
@@ -385,19 +239,8 @@ fn doc_snapshot(
     width: u32,
     node_id: Option<String>,
 ) -> Result<String> {
-    use base64::Engine;
     with_studio(&state, |studio| {
-        let opts = md_mcp::render::SnapshotOptions {
-            width,
-            time,
-            node: node_id
-                .map(NodeId::parse)
-                .transpose()
-                .map_err(|e| e.to_string())?,
-            region: None,
-        };
-        let (png, _, _) = md_mcp::render::snapshot(studio.session.document(), &page, &opts)?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(png))
+        studio.snapshot(&page, time, width, node_id.as_deref())
     })
 }
 
@@ -467,26 +310,9 @@ fn geom_fit_freehand(points: Vec<f64>, tolerance: f64) -> Result<String> {
 // Animation
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PackageInfo {
-    manifest: md_anim::AnimationManifest,
-    origin: &'static str,
-}
-
 #[tauri::command]
 fn anim_list(state: State<AppState>) -> Result<Vec<PackageInfo>> {
-    with_studio(&state, |studio| {
-        Ok(studio
-            .registry
-            .list()
-            .into_iter()
-            .map(|p| PackageInfo {
-                manifest: p.manifest.clone(),
-                origin: p.origin.as_str(),
-            })
-            .collect())
-    })
+    with_studio(&state, |studio| Ok(studio.animations()))
 }
 
 #[tauri::command]
@@ -498,23 +324,10 @@ fn anim_bake(
     page: String,
 ) -> Result<md_doc::Timeline> {
     with_studio(&state, |studio| {
-        md_anim::apply_to_selector(
-            studio.session.document(),
-            &studio.registry,
-            &package,
-            &selector,
-            params,
-            Some(&page),
-        )
-        .map_err(|e| e.to_string())
+        studio.bake(&package, &selector, params, &page)
     })
 }
 
-/// Re-derive a timeline's keyframes after its parameters changed.
-///
-/// The parameters are the truth and the keyframes are derived from them, so a change
-/// re-bakes rather than editing the keyframes in place. It also re-resolves the
-/// selector, which is what lets an animation pick up nodes added since it was applied.
 #[tauri::command]
 fn anim_rebake(
     state: State<AppState>,
@@ -522,22 +335,7 @@ fn anim_rebake(
     page: String,
     params: serde_json::Map<String, serde_json::Value>,
 ) -> Result<md_doc::Timeline> {
-    with_studio(&state, |studio| {
-        let doc = studio.session.document();
-        let existing = doc
-            .page(&page)
-            .and_then(|p| p.timelines.iter().find(|t| t.id.as_str() == timeline_id))
-            .ok_or_else(|| format!("no timeline {timeline_id} on page '{page}'"))?;
-
-        let mut updated = existing.clone();
-        if let Some(source) = updated.source.as_mut() {
-            for (k, v) in params {
-                source.params.insert(k, v);
-            }
-        }
-
-        md_anim::rebake(doc, &studio.registry, &updated, Some(&page)).map_err(|e| e.to_string())
-    })
+    with_studio(&state, |studio| studio.rebake(&timeline_id, &page, params))
 }
 
 // ---------------------------------------------------------------------------
@@ -552,26 +350,11 @@ fn selection_publish(
     note: String,
     viewport: Option<Vec<f64>>,
 ) -> Result<()> {
+    // A viewport that is not four numbers is dropped rather than refused: it is a hint
+    // for framing a screenshot, and losing it costs the agent nothing it cannot recover.
+    let viewport = viewport.and_then(|v| <[f64; 4]>::try_from(v).ok());
     with_studio(&state, |studio| {
-        let ids: std::result::Result<Vec<NodeId>, _> = nodes.iter().map(NodeId::parse).collect();
-
-        let selection = md_doc::Selection {
-            page,
-            nodes: ids.map_err(|e| e.to_string())?,
-            note,
-            annotation: None,
-            viewport: viewport.and_then(|v| {
-                if v.len() == 4 {
-                    Some([v[0], v[1], v[2], v[3]])
-                } else {
-                    None
-                }
-            }),
-            updated_at: storage::now_millis(),
-        };
-
-        md_doc::selection::save_selection(&studio.project_dir, &selection)
-            .map_err(|e| e.to_string())
+        studio.publish_selection(page, &nodes, note, viewport)
     })
 }
 
@@ -582,31 +365,13 @@ fn request_queue(
     page: String,
     nodes: Vec<String>,
 ) -> Result<String> {
-    with_studio(&state, |studio| {
-        let ids: std::result::Result<Vec<NodeId>, _> = nodes.iter().map(NodeId::parse).collect();
-
-        let created = storage::now_millis();
-        let request = Request {
-            id: format!("req_{created}"),
-            created_at: created,
-            note,
-            page,
-            selection: ids.map_err(|e| e.to_string())?,
-            annotation: None,
-            status: RequestStatus::Open,
-        };
-
-        storage::save_request(&studio.project_dir, &request).map_err(|e| e.to_string())?;
-        Ok(request.id)
-    })
+    with_studio(&state, |studio| studio.queue_request(note, page, &nodes))
 }
 
 /// The command line to attach an agent to this project, for the UI to show verbatim.
 #[tauri::command]
 fn mcp_command(state: State<AppState>) -> Result<String> {
-    with_studio(&state, |studio| {
-        Ok(format!("md mcp {}", studio.project_dir.display()))
-    })
+    with_studio(&state, |studio| Ok(studio.mcp_command()))
 }
 
 // ---------------------------------------------------------------------------

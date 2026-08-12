@@ -180,6 +180,13 @@ function TopBar(props: { kind: ShellKind }) {
           ⤢
         </button>
         <button onClick={() => void actions.save()}>Save</button>
+        <button
+          class="topbar__go"
+          title="Build the static site into the project's dist folder (Ctrl+Shift+E)"
+          onClick={() => void actions.exportSite()}
+        >
+          Export
+        </button>
       </div>
     </header>
   );

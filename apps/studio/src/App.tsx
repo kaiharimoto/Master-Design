@@ -78,6 +78,11 @@ export function App() {
       void actions.save();
       return;
     }
+    if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      void actions.exportSite();
+      return;
+    }
     if (mod && e.key.toLowerCase() === "a") {
       e.preventDefault();
       actions.selectAll();
@@ -138,6 +143,30 @@ export function App() {
           <div class="toast toast--info" role="status">
             <span>Reloaded — the project changed on disk.</span>
           </div>
+        </Show>
+        <Show when={state.notice}>
+          {(notice) => (
+            <div class="toast toast--info" role="status">
+              <div class="toast__body">
+                <span>{notice().text}</span>
+                {/*
+                  Warnings belong in front of the person who is about to publish, not in a
+                  console they will never open. An export that quietly dropped an
+                  animation is worse than one that says it did.
+                */}
+                <Show when={notice().detail.length > 0}>
+                  <ul class="toast__detail">
+                    {notice().detail.map((line) => (
+                      <li>{line}</li>
+                    ))}
+                  </ul>
+                </Show>
+              </div>
+              <button onClick={() => actions.dismissNotice()} aria-label="Dismiss">
+                ×
+              </button>
+            </div>
+          )}
         </Show>
         <Show when={state.error}>
           {(message) => (

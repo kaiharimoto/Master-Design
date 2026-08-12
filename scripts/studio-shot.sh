@@ -8,6 +8,11 @@
 #
 #   scripts/studio-shot.sh out.png [width] [height] [project-dir]
 #
+# Set MD_SHOT_KEYS to drive the app before the picture is taken — a space-separated list
+# of xdotool key sequences, e.g. MD_SHOT_KEYS="ctrl+shift+e" to trigger an export. This
+# is how an interaction gets verified rather than merely rendered: the screenshot then
+# shows what the app did, not just what it looks like sitting still.
+#
 # Sizes worth using, matching the three shells the app switches between:
 #   1440x900   desktop   — rails on both sides
 #   1024x768   tablet    — collapsed rails, bigger targets
@@ -104,6 +109,20 @@ if [[ "$MAPPED" != "1" ]]; then
 fi
 
 sleep 2.5
+
+if [[ -n "${MD_SHOT_KEYS:-}" ]]; then
+  WINDOW=$(xdotool search --onlyvisible --name "Master Design" | head -1)
+  # Focus explicitly: with no window manager running, nothing has focus by default and
+  # keystrokes go nowhere.
+  xdotool windowfocus "$WINDOW" 2>/dev/null || true
+  xdotool windowactivate "$WINDOW" 2>/dev/null || true
+  for KEYS in $MD_SHOT_KEYS; do
+    xdotool key --window "$WINDOW" --clearmodifiers "$KEYS"
+    sleep 1.2
+  done
+  sleep 1.5
+fi
+
 import -display "$DISPLAY" -window root "$OUT"
 
 echo "wrote $OUT (${WIDTH}x${HEIGHT})"

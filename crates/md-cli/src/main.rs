@@ -246,23 +246,24 @@ fn cmd_new(path: PathBuf, name: Option<String>, width: f64, height: f64) -> Resu
             .replace(['-', '_'], " ")
     });
 
-    let mut doc = Document::new(&name);
-    doc.pages[0].width = width;
-    doc.pages[0].height = height;
-    if let md_doc::NodeKind::Frame(f) = &mut doc.pages[0].root.kind {
-        f.width = width;
-        f.height = height;
-    }
-    doc.pages[0].background = Some(md_doc::Paint::solid("#ffffff")?);
+    let doc = Document::sized(&name, width, height)?;
 
-    storage::save_project(&path, &doc)?;
-    std::fs::create_dir_all(path.join(storage::ANIMATIONS_DIR))?;
+    // `md` by name, not by absolute path: this file is committed and the project is meant
+    // to travel between machines. Anyone running `md new` has `md` on their PATH by
+    // definition.
+    let extras = storage::scaffold_project(&path, &doc, "md")?;
+    let attached = extras
+        .iter()
+        .any(|p| p.file_name().and_then(|n| n.to_str()) == Some(storage::MCP_CONFIG_FILE));
 
     println!("Created \"{name}\" at {}", path.display());
     println!("  {width}×{height}");
     println!("\nNext:");
     println!("  md describe {}", path.display());
-    println!("  md mcp {}    # attach an AI model", path.display());
+    if attached {
+        println!("  claude                        # in that folder — the MCP server is already configured");
+    }
+    println!("  md mcp {}    # or attach a model by hand", path.display());
     Ok(())
 }
 
