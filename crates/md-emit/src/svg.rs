@@ -19,6 +19,13 @@ use std::fmt::Write;
 pub struct SvgWriter<'a> {
     defs: String,
     counter: usize,
+    /// Prepended to every generated id.
+    ///
+    /// A responsive page carries the same artwork several times over, once per
+    /// breakpoint, and each copy generates its own gradients and clip paths. Without a
+    /// namespace they all mint `md-grad-1`, and a browser resolving `url(#md-grad-1)`
+    /// takes the first match — so every copy would paint with the phone copy's gradients.
+    namespace: String,
     /// Nodes whose stroke must carry a dash array so a draw-on animation has something
     /// to offset. Computed from the timelines before rendering starts.
     pub dashed: &'a BTreeSet<String>,
@@ -32,10 +39,17 @@ impl<'a> SvgWriter<'a> {
         SvgWriter {
             defs: String::new(),
             counter: 0,
+            namespace: String::new(),
             dashed,
             animated,
             warnings: Vec::new(),
         }
+    }
+
+    /// Namespace every id this writer generates, for one copy of a responsive page.
+    pub fn in_namespace(mut self, namespace: &str) -> Self {
+        self.namespace = format!("{namespace}-");
+        self
     }
 
     /// Render a whole page, returning the `<svg>` element.
@@ -81,7 +95,7 @@ impl<'a> SvgWriter<'a> {
 
     fn next_id(&mut self, prefix: &str) -> String {
         self.counter += 1;
-        format!("md-{prefix}-{}", self.counter)
+        format!("md-{}{prefix}-{}", self.namespace, self.counter)
     }
 
     /// Render one node and its subtree.

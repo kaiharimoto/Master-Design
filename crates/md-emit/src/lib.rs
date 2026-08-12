@@ -12,6 +12,7 @@ pub mod anim;
 pub mod fonts;
 pub mod frame;
 pub mod html;
+pub mod responsive;
 pub mod svg;
 
 use md_doc::{Document, Page};
@@ -58,6 +59,12 @@ pub struct ExportOptions {
     /// the designer saw. Turning it off is for a site that already serves its own fonts
     /// and does not want a second copy.
     pub embed_fonts: bool,
+    /// Solve the layout at each of the project's breakpoints and emit one copy per band.
+    ///
+    /// On by default, and a no-op for a design with no constraints or auto-layout in it.
+    /// Turning it off produces the single scaling picture the exporter used to emit, which
+    /// is what a piece of artwork destined for an `<img>` wants.
+    pub responsive: bool,
 }
 
 impl Default for ExportOptions {
@@ -67,6 +74,7 @@ impl Default for ExportOptions {
             assets_from: None,
             only_page: None,
             embed_fonts: true,
+            responsive: true,
         }
     }
 }
@@ -101,25 +109,60 @@ pub fn render_svg(doc: &Document, page: &Page, paint_background: bool) -> (Strin
 /// Separate from [`export`] because the MCP snapshot tool and the studio's preview both
 /// want the markup without anything touching the filesystem.
 pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String, Vec<String>) {
+    let mut warnings = Vec::new();
+
+    // One copy of the artwork per breakpoint. A design with nothing responsive in it
+    // yields a single band, so a fixed graphic still exports as one `<svg>`.
+    let bands = if opts.responsive {
+        responsive::bands(doc, page)
+    } else {
+        vec![responsive::Band {
+            name: "all".into(),
+            width: page.width,
+            min_width: 0.0,
+            max_width: None,
+            page: page.clone(),
+        }]
+    };
+
+    // Animations are compiled from the *design*, not from a solved copy: the selectors
+    // target node ids, which every copy shares, so the runtime drives them all at once.
+    // Only one is visible, and `display:none` elements do not paint.
     let compiled = anim::compile(doc, page);
+    warnings.extend(compiled.warnings.clone());
 
-    let mut writer = svg::SvgWriter::new(&compiled.dashed, &compiled.animated);
-    // The stylesheet paints the page colour; see `SvgWriter::page`.
-    let markup = writer.page(page, false);
+    let mut markup = String::new();
+    for band in &bands {
+        let mut writer =
+            svg::SvgWriter::new(&compiled.dashed, &compiled.animated).in_namespace(&band.name);
+        // The stylesheet paints the page colour; see `SvgWriter::page`.
+        let svg = writer.page(&band.page, false);
 
-    let mut warnings = compiled.warnings.clone();
-    warnings.extend(writer.warnings.clone());
+        // Warnings would otherwise arrive once per band, saying the same thing three
+        // times about the same node.
+        if band.name == bands[0].name {
+            warnings.extend(writer.warnings.clone());
+        }
+
+        if bands.len() == 1 {
+            markup.push_str(&svg);
+        } else {
+            markup.push_str(&format!("<div class=\"{}\">{svg}</div>", band.class()));
+        }
+    }
+
+    let mut css = responsive::stylesheet(&bands);
 
     // The `@font-face` rules go in the page even when nothing writes the files — this
     // function is also how the studio previews a page, and a preview with no typography
     // is not a preview. `export` writes the files that back them.
-    let font_css = if opts.embed_fonts {
+    if opts.embed_fonts {
         let (files, font_warnings) = fonts::plan(doc, Some(page.slug.as_str()));
         warnings.extend(font_warnings);
-        files.iter().map(|f| f.css.clone()).collect::<String>()
-    } else {
-        String::new()
-    };
+        // Ahead of the layout rules for the same reason it is ahead of everything else:
+        // the browser starts fetching the font the moment it reads the rule.
+        css.insert_str(0, &files.iter().map(|f| f.css.clone()).collect::<String>());
+    }
 
     let payload = compiled.to_payload();
     let (animations, runtime) = if compiled.is_empty() {
@@ -135,7 +178,7 @@ pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String
         animations,
         runtime,
         opts.accessibility_outline,
-        &font_css,
+        &css,
     );
 
     (html, warnings)

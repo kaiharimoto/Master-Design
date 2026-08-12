@@ -367,6 +367,7 @@ impl Server {
             time: args.get("time").and_then(|v| v.as_f64()),
             node,
             region,
+            at_width: args.get("atWidth").and_then(|v| v.as_f64()),
         };
 
         match render::snapshot(doc, &page, &opts) {
@@ -376,7 +377,14 @@ impl Server {
                     Some(t) => format!(" at {t}s"),
                     None => String::new(),
                 };
-                ToolResult::image(format!("Page \"{page}\"{when}, {w}×{h}."), encoded)
+                let laid_out = match opts.at_width {
+                    Some(width) => format!(", laid out at {width} document units wide"),
+                    None => String::new(),
+                };
+                ToolResult::image(
+                    format!("Page \"{page}\"{when}{laid_out}, {w}×{h}."),
+                    encoded,
+                )
             }
             Err(e) => ToolResult::error(e),
         }

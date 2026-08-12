@@ -86,7 +86,8 @@ pub fn specs() -> Vec<ToolSpec> {
                  a node list cannot tell you that two elements overlap, that text is \
                  illegible against its background, or that something sits off-canvas. Pass \
                  'time' to render mid-animation, which is the only way to see whether motion \
-                 you added actually reads.",
+                 you added actually reads, and 'atWidth' to see the layout the way a phone \
+                 or tablet will get it rather than the desktop design shrunk down.",
             input_schema: schema(
                 json!({
                     "page": { "type": "string", "description": "Page slug or id. Defaults to the first page." },
@@ -104,6 +105,12 @@ pub fn specs() -> Vec<ToolSpec> {
                     "width": {
                         "type": "integer",
                         "description": "Output width in pixels, 16..4096. Default 1024."
+                    },
+                    "atWidth": {
+                        "type": "number",
+                        "description": "Solve constraints and auto-layout at this document \
+                                        width first — 390 for a phone, 768 for a tablet. \
+                                        Omit to see the design as authored."
                     }
                 }),
                 &[],

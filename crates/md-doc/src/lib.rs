@@ -48,7 +48,7 @@ pub mod transform;
 
 pub use anim::{AnimSource, Easing, Keyframe, Timeline, Track, Trigger};
 pub use canonical::to_canonical_string;
-pub use document::{Document, NodeLocation, Page, ProjectMeta, Tokens, SCHEMA_VERSION};
+pub use document::{Breakpoint, Document, NodeLocation, Page, ProjectMeta, Tokens, SCHEMA_VERSION};
 pub use error::{DocError, Result};
 pub use history::{History, Transaction};
 pub use id::{NodeId, PageId, TimelineId};

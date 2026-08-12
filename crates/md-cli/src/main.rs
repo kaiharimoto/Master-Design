@@ -104,6 +104,10 @@ enum Command {
         time: Option<f64>,
         #[arg(long, default_value_t = 1024)]
         width: u32,
+        /// Solve the layout at this document width first — 390 for a phone, 768 for a
+        /// tablet. Without it the design renders as authored.
+        #[arg(long)]
+        at_width: Option<f64>,
     },
 
     /// Work with animation packages.
@@ -210,7 +214,8 @@ fn run() -> Result<()> {
             node,
             time,
             width,
-        } => cmd_snapshot(&project, out, page, node, time, width),
+            at_width,
+        } => cmd_snapshot(&project, out, page, node, time, width, at_width),
         Command::Anim(AnimCommand::List { query }) => cmd_anim_list(std_animations, query),
         Command::Anim(AnimCommand::Apply {
             project,
@@ -384,6 +389,7 @@ fn cmd_snapshot(
     node: Option<String>,
     time: Option<f64>,
     width: u32,
+    at_width: Option<f64>,
 ) -> Result<()> {
     let doc = load(project)?;
     let page_key = page.unwrap_or_else(|| {
@@ -398,6 +404,7 @@ fn cmd_snapshot(
         time,
         node: node.map(NodeId::parse).transpose()?,
         region: None,
+        at_width,
     };
 
     let (png, w, h) = md_mcp::render::snapshot(&doc, &page_key, &opts).map_err(|e| anyhow!(e))?;

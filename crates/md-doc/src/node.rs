@@ -392,6 +392,69 @@ impl Node {
         }
     }
 
+    /// The node's own width and height, if it has a box the layout engine can set.
+    ///
+    /// `None` for the kinds whose size is emergent rather than stated — a group is the
+    /// union of its children, a path is its outline — because resizing those means
+    /// scaling a transform, which is a different operation with different consequences
+    /// for stroke widths and corner radii.
+    pub fn box_size(&self) -> Option<(f64, f64)> {
+        match &self.kind {
+            NodeKind::Frame(f) => Some((f.width, f.height)),
+            NodeKind::Rect(r) => Some((r.width, r.height)),
+            NodeKind::Ellipse(e) => Some((e.width, e.height)),
+            NodeKind::Image(i) => Some((i.width, i.height)),
+            // A text box only has a stated size where the designer gave it one. Where it
+            // has none it hugs its content, and its measured extent is not something to
+            // overwrite — changing the measure is what reflows it.
+            NodeKind::Text(t) => match (t.width, t.height) {
+                (Some(w), Some(h)) => Some((w, h)),
+                (Some(w), None) => Some((w, self.local_bounds().map_or(0.0, |b| b.h))),
+                _ => None,
+            },
+            NodeKind::Path(_) | NodeKind::Group => None,
+        }
+    }
+
+    /// Resize the node's own box. Returns whether it had one to resize.
+    ///
+    /// Sizes are floored at zero rather than refused: a constraint solve at a narrow
+    /// width can legitimately compute a negative width for an element with padding wider
+    /// than the viewport, and collapsing it is a better answer than an error the user can
+    /// do nothing about.
+    pub fn set_box_size(&mut self, width: f64, height: f64) -> bool {
+        let (w, h) = (width.max(0.0), height.max(0.0));
+        match &mut self.kind {
+            NodeKind::Frame(f) => {
+                f.width = w;
+                f.height = h;
+            }
+            NodeKind::Rect(r) => {
+                r.width = w;
+                r.height = h;
+            }
+            NodeKind::Ellipse(e) => {
+                e.width = w;
+                e.height = h;
+            }
+            NodeKind::Image(i) => {
+                i.width = w;
+                i.height = h;
+            }
+            NodeKind::Text(t) => {
+                // Setting the measure, not the rendered extent: the height follows from
+                // how the text wraps at the new width, so stating it would fight the
+                // typesetting rather than describe it.
+                t.width = Some(w);
+                if t.height.is_some() {
+                    t.height = Some(h);
+                }
+            }
+            NodeKind::Path(_) | NodeKind::Group => return false,
+        }
+        true
+    }
+
     /// Bounding box after applying this node's own transform — the box its parent sees.
     pub fn bounds_in_parent(&self) -> Option<Bounds> {
         let b = self.local_bounds()?;

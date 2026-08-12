@@ -12,6 +12,7 @@ authors.workspace = true
 md-anim.workspace = true
 md-doc.workspace = true
 md-emit.workspace = true
+md-layout.workspace = true
 md-text.workspace = true
 md-geom.workspace = true
 serde.workspace = true

@@ -700,6 +700,7 @@ version = "0.1.0"
 dependencies = [
  "md-doc",
  "md-geom",
+ "md-layout",
  "md-text",
  "serde",
  "serde_json",
@@ -722,6 +723,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-layout"
+version = "0.1.0"
+dependencies = [
+ "md-doc",
+ "serde_json",
+]
+
+[[package]]
 name = "md-mcp"
 version = "0.1.0"
 dependencies = [
@@ -730,6 +739,7 @@ dependencies = [
  "md-doc",
  "md-emit",
  "md-geom",
+ "md-layout",
  "md-text",
  "resvg",
  "serde",

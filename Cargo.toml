@@ -8,6 +8,7 @@ members = [
     "crates/md-mcp",
     "crates/md-geom",
     "crates/md-text",
+    "crates/md-layout",
 ]
 
 [workspace.package]
@@ -25,6 +26,7 @@ md-geom = { path = "crates/md-geom" }
 md-emit = { path = "crates/md-emit" }
 md-mcp = { path = "crates/md-mcp" }
 md-text = { path = "crates/md-text" }
+md-layout = { path = "crates/md-layout" }
 
 anyhow = "1"
 thiserror = "2"

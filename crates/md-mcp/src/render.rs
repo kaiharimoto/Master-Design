@@ -25,6 +25,12 @@ pub struct SnapshotOptions {
     pub node: Option<md_doc::NodeId>,
     /// Explicit crop rectangle in document units, `[x, y, w, h]`.
     pub region: Option<[f64; 4]>,
+    /// Solve the layout at this document width before rendering.
+    ///
+    /// This is how a model sees the phone layout rather than the desktop one shrunk down.
+    /// `None` renders the design as authored, which is what "show me what I am editing"
+    /// means.
+    pub at_width: Option<f64>,
 }
 
 impl Default for SnapshotOptions {
@@ -36,6 +42,7 @@ impl Default for SnapshotOptions {
             time: None,
             node: None,
             region: None,
+            at_width: None,
         }
     }
 }
@@ -70,9 +77,20 @@ pub fn snapshot(
         None => doc,
     };
 
-    let page: &Page = source
+    let authored: &Page = source
         .page(page_key)
         .ok_or_else(|| format!("no page '{page_key}' in this document"))?;
+
+    // Solving produces a page, so it has to be owned; borrowing the authored one when no
+    // width was asked for keeps the common path free of a clone of the whole scene graph.
+    let solved;
+    let page: &Page = match opts.at_width {
+        Some(width) if width > 0.0 => {
+            solved = md_layout::solve(authored, width);
+            &solved
+        }
+        _ => authored,
+    };
 
     let crop = resolve_crop(source, page, opts)?;
     let svg = wrap_for_crop(source, page, crop);
@@ -303,6 +321,65 @@ mod tests {
             ..Default::default()
         };
         assert!(snapshot(&doc(), "index", &opts).is_err());
+    }
+
+    #[test]
+    fn rendering_at_a_width_shows_the_layout_that_width_gets() {
+        // The point of `atWidth`: a model asking "how does this look on a phone" gets the
+        // phone *layout*, not the desktop design shrunk to phone size.
+        use md_doc::node::{Constraints, HConstraint, VConstraint};
+
+        let mut d = doc();
+        let mut band = Node::new(
+            NodeId::from_static("nd_band"),
+            NodeKind::Rect(RectGeometry {
+                width: 1340.0,
+                height: 100.0,
+                corner_radius: [0.0; 4],
+            }),
+        )
+        .with_fill(Paint::solid("#6d5efc").unwrap());
+        band.constraints = Constraints {
+            h: HConstraint::Stretch,
+            v: VConstraint::Top,
+        };
+        d.pages[0].root.children.push(band);
+        let (page_w, page_h) = (d.pages[0].width, d.pages[0].height);
+        if let md_doc::NodeKind::Frame(f) = &mut d.pages[0].root.kind {
+            f.width = page_w;
+            f.height = page_h;
+        }
+
+        let authored = snapshot(&d, "index", &SnapshotOptions::default()).unwrap();
+        let phone = snapshot(
+            &d,
+            "index",
+            &SnapshotOptions {
+                at_width: Some(390.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_ne!(authored.0, phone.0, "the solve changed nothing");
+        // 1440×900 → 390×900: much taller relative to its width.
+        assert!(
+            phone.2 > authored.2,
+            "the phone render should be proportionally taller: {} vs {}",
+            phone.2,
+            authored.2
+        );
+    }
+
+    #[test]
+    fn a_width_of_zero_falls_back_to_the_design() {
+        let opts = SnapshotOptions {
+            at_width: Some(0.0),
+            ..Default::default()
+        };
+        let solved = snapshot(&doc(), "index", &opts).unwrap();
+        let authored = snapshot(&doc(), "index", &SnapshotOptions::default()).unwrap();
+        assert_eq!(solved.0, authored.0);
     }
 
     #[test]

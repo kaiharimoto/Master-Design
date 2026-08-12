@@ -1,6 +1,6 @@
 [package]
-name = "md-emit"
-description = "Exports a Master Design document to a self-contained static website."
+name = "md-layout"
+description = "Resolves auto-layout and constraints so a design reflows at a target width"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +10,6 @@ authors.workspace = true
 
 [dependencies]
 md-doc.workspace = true
-md-geom.workspace = true
-md-layout.workspace = true
-md-text.workspace = true
-serde.workspace = true
+
+[dev-dependencies]
 serde_json.workspace = true
-thiserror.workspace = true
