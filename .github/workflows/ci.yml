@@ -129,6 +129,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # Playwright and pngjs are workspace devDependencies rather than an unpinned
+      # `npm install` here, so the browser check runs the same versions locally and in CI.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
       - name: Build the CLI
         run: cargo build --release -p md-cli
 
@@ -167,8 +176,7 @@ jobs:
       - name: The exported page runs in a real browser
         run: |
           set -euo pipefail
-          npm install --no-save playwright@1 pngjs
-          npx playwright install --with-deps chromium
+          pnpm exec playwright install --with-deps chromium
           node .github/scripts/check-export.mjs /tmp/out/index.html
 
       # Two renderers exist and always will: one writes SVG for a browser, one rasterizes

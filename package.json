@@ -19,10 +19,14 @@
     "test": "pnpm -r test",
     "test:rust": "cargo test --workspace",
     "fmt": "cargo fmt --all && prettier --write .",
-    "lint": "cargo clippy --workspace --all-targets -- -D warnings"
+    "lint": "cargo clippy --workspace --all-targets -- -D warnings",
+    "check": "bash scripts/check.sh",
+    "check:fast": "bash scripts/check.sh --fast"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "playwright": "^1.49.0",
+    "pngjs": "^7.0.0"
   }
 }
