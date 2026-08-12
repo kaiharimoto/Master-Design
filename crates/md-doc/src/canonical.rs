@@ -21,9 +21,11 @@
 //! Path geometry is exempt: it lives inside `d` strings already formatted by the
 //! geometry kernel at its own precision.
 
-use crate::error::Result;
-use serde::Serialize;
+use crate::error::{DocError, Result};
+use serde::{ser, Serialize};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
+use std::fmt;
 
 /// Decimal places retained for numbers in the document.
 ///
@@ -38,6 +40,7 @@ const QUANTIZE_LIMIT: f64 = 1e12;
 
 /// Serialize to the canonical JSON text for a document file.
 pub fn to_canonical_string<T: Serialize>(value: &T) -> Result<String> {
+    ensure_finite(value)?;
     let v = canonicalize(serde_json::to_value(value)?);
     let mut out = String::new();
     write_value(&mut out, &v, 0);
@@ -72,6 +75,310 @@ fn quantize(v: f64) -> f64 {
         0.0
     } else {
         r
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The non-finite guard
+// ---------------------------------------------------------------------------
+
+/// Refuse NaN and infinity before anything reaches a file.
+///
+/// JSON cannot spell them, so `serde_json` writes `null` instead — and `null` will not
+/// read back into an `f64`. Left to run, a NaN width means a save that reports success
+/// and a project that never opens again, with nothing in the file to say what went
+/// wrong. A refused save is recoverable; a corrupt one is not.
+///
+/// The error names the offending value by its dotted path, e.g. `pages.0.width`.
+pub fn ensure_finite<T: Serialize + ?Sized>(value: &T) -> Result<()> {
+    let trail = RefCell::new(Vec::new());
+    match value.serialize(FiniteCheck { trail: &trail }) {
+        Ok(()) => Ok(()),
+        Err(ScanError::NonFinite(path)) => Err(DocError::InvalidValue {
+            path,
+            reason: "not a finite number — NaN and infinity cannot be stored".into(),
+        }),
+        Err(ScanError::Other(reason)) => Err(DocError::InvalidValue {
+            path: String::new(),
+            reason,
+        }),
+    }
+}
+
+#[derive(Debug)]
+enum ScanError {
+    /// Dotted path to the offending number.
+    NonFinite(String),
+    Other(String),
+}
+
+impl fmt::Display for ScanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScanError::NonFinite(path) => write!(f, "non-finite number at '{path}'"),
+            ScanError::Other(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for ScanError {}
+
+impl ser::Error for ScanError {
+    fn custom<T: fmt::Display>(msg: T) -> Self {
+        ScanError::Other(msg.to_string())
+    }
+}
+
+type Scan = std::result::Result<(), ScanError>;
+
+/// A serializer that looks at numbers and discards everything else.
+///
+/// It has to be a serializer rather than a walk over [`Value`], because by the time a
+/// value has become a `Value` the non-finite numbers are already indistinguishable from
+/// the nulls a document legitimately contains.
+#[derive(Clone, Copy)]
+struct FiniteCheck<'a> {
+    trail: &'a RefCell<Vec<String>>,
+}
+
+impl<'a> FiniteCheck<'a> {
+    fn number(self, v: f64) -> Scan {
+        if v.is_finite() {
+            Ok(())
+        } else {
+            Err(ScanError::NonFinite(self.trail.borrow().join(".")))
+        }
+    }
+
+    fn nested<T: ?Sized + Serialize>(self, segment: String, value: &T) -> Scan {
+        self.trail.borrow_mut().push(segment);
+        let result = value.serialize(self);
+        self.trail.borrow_mut().pop();
+        result
+    }
+
+    fn compound(self) -> Compound<'a> {
+        Compound {
+            check: self,
+            index: 0,
+            key: String::new(),
+        }
+    }
+}
+
+macro_rules! ignored {
+    ($($method:ident($ty:ty)),* $(,)?) => {
+        $(fn $method(self, _v: $ty) -> Scan { Ok(()) })*
+    };
+}
+
+impl<'a> ser::Serializer for FiniteCheck<'a> {
+    type Ok = ();
+    type Error = ScanError;
+    type SerializeSeq = Compound<'a>;
+    type SerializeTuple = Compound<'a>;
+    type SerializeTupleStruct = Compound<'a>;
+    type SerializeTupleVariant = Compound<'a>;
+    type SerializeMap = Compound<'a>;
+    type SerializeStruct = Compound<'a>;
+    type SerializeStructVariant = Compound<'a>;
+
+    ignored!(
+        serialize_bool(bool),
+        serialize_i8(i8),
+        serialize_i16(i16),
+        serialize_i32(i32),
+        serialize_i64(i64),
+        serialize_i128(i128),
+        serialize_u8(u8),
+        serialize_u16(u16),
+        serialize_u32(u32),
+        serialize_u64(u64),
+        serialize_u128(u128),
+        serialize_char(char),
+        serialize_str(&str),
+        serialize_bytes(&[u8]),
+    );
+
+    fn serialize_f32(self, v: f32) -> Scan {
+        self.number(v as f64)
+    }
+
+    fn serialize_f64(self, v: f64) -> Scan {
+        self.number(v)
+    }
+
+    fn serialize_none(self) -> Scan {
+        Ok(())
+    }
+
+    fn serialize_some<T: ?Sized + Serialize>(self, v: &T) -> Scan {
+        v.serialize(self)
+    }
+
+    fn serialize_unit(self) -> Scan {
+        Ok(())
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Scan {
+        Ok(())
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _index: u32,
+        _variant: &'static str,
+    ) -> Scan {
+        Ok(())
+    }
+
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(self, _name: &'static str, v: &T) -> Scan {
+        v.serialize(self)
+    }
+
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _name: &'static str,
+        _index: u32,
+        variant: &'static str,
+        v: &T,
+    ) -> Scan {
+        self.nested(variant.to_string(), v)
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_tuple(self, _len: usize) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_map(self, _len: Option<usize>) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> std::result::Result<Compound<'a>, ScanError> {
+        Ok(self.compound())
+    }
+}
+
+/// Position within whatever container is currently being walked.
+struct Compound<'a> {
+    check: FiniteCheck<'a>,
+    index: usize,
+    key: String,
+}
+
+impl Compound<'_> {
+    fn element<T: ?Sized + Serialize>(&mut self, value: &T) -> Scan {
+        let segment = self.index.to_string();
+        self.index += 1;
+        self.check.nested(segment, value)
+    }
+}
+
+macro_rules! sequence_of {
+    ($trait:ident, $method:ident) => {
+        impl ser::$trait for Compound<'_> {
+            type Ok = ();
+            type Error = ScanError;
+
+            fn $method<T: ?Sized + Serialize>(&mut self, value: &T) -> Scan {
+                self.element(value)
+            }
+
+            fn end(self) -> Scan {
+                Ok(())
+            }
+        }
+    };
+}
+
+sequence_of!(SerializeSeq, serialize_element);
+sequence_of!(SerializeTuple, serialize_element);
+sequence_of!(SerializeTupleStruct, serialize_field);
+sequence_of!(SerializeTupleVariant, serialize_field);
+
+macro_rules! fields_of {
+    ($trait:ident) => {
+        impl ser::$trait for Compound<'_> {
+            type Ok = ();
+            type Error = ScanError;
+
+            fn serialize_field<T: ?Sized + Serialize>(
+                &mut self,
+                key: &'static str,
+                value: &T,
+            ) -> Scan {
+                self.check.nested(key.to_string(), value)
+            }
+
+            fn end(self) -> Scan {
+                Ok(())
+            }
+        }
+    };
+}
+
+fields_of!(SerializeStruct);
+fields_of!(SerializeStructVariant);
+
+impl ser::SerializeMap for Compound<'_> {
+    type Ok = ();
+    type Error = ScanError;
+
+    fn serialize_key<T: ?Sized + Serialize>(&mut self, key: &T) -> Scan {
+        // Every map in the document model is keyed by a string, and keeping the text is
+        // what lets an error say `spacing.gutter` rather than `spacing.2`.
+        self.key = match serde_json::to_value(key) {
+            Ok(Value::String(s)) => s,
+            Ok(other) => other.to_string(),
+            Err(_) => String::new(),
+        };
+        Ok(())
+    }
+
+    fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Scan {
+        let key = std::mem::take(&mut self.key);
+        self.check.nested(key, value)
+    }
+
+    fn end(self) -> Scan {
+        Ok(())
     }
 }
 
@@ -271,5 +578,48 @@ mod tests {
     #[test]
     fn output_ends_with_a_newline() {
         assert!(to_canonical_string(&json!({})).unwrap().ends_with('\n'));
+    }
+
+    #[test]
+    fn non_finite_numbers_are_refused_rather_than_written_as_null() {
+        // `serde_json` spells NaN and infinity `null`, and `null` will not read back
+        // into an `f64` — passing them through means a save that reports success and a
+        // file nobody can open again.
+        #[derive(serde::Serialize)]
+        struct Rect {
+            width: f64,
+        }
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err = to_canonical_string(&Rect { width: bad })
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("width"), "unhelpful error: {err}");
+        }
+        assert!(to_canonical_string(&Rect { width: 800.0 }).is_ok());
+    }
+
+    #[test]
+    fn a_refused_number_is_named_by_its_path() {
+        #[derive(serde::Serialize)]
+        struct Page {
+            nodes: Vec<Rect>,
+        }
+        #[derive(serde::Serialize)]
+        struct Rect {
+            width: f64,
+        }
+        let err = to_canonical_string(&Page {
+            nodes: vec![Rect { width: 1.0 }, Rect { width: f64::NAN }],
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("nodes.1.width"), "got {err}");
+    }
+
+    #[test]
+    fn map_keys_reach_the_path_too() {
+        let spacing = std::collections::BTreeMap::from([("gutter".to_string(), f64::INFINITY)]);
+        let err = to_canonical_string(&spacing).unwrap_err().to_string();
+        assert!(err.contains("gutter"), "got {err}");
     }
 }

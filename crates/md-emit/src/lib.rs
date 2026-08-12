@@ -71,6 +71,22 @@ pub struct ExportReport {
     pub warnings: Vec<String>,
 }
 
+/// Render just the `<svg>` for a page.
+///
+/// Separate from [`render_page`] because the snapshot renderer wants the artwork without
+/// a document around it — and wants the page colour painted into it, which an exported
+/// page leaves to CSS. Pulling the SVG back out of the HTML with a string search, which
+/// is what this replaces, was one malformed `</svg>` away from silent nonsense.
+pub fn render_svg(doc: &Document, page: &Page, paint_background: bool) -> (String, Vec<String>) {
+    let compiled = anim::compile(doc, page);
+    let mut writer = svg::SvgWriter::new(&compiled.dashed, &compiled.animated);
+    let markup = writer.page(page, paint_background);
+
+    let mut warnings = compiled.warnings.clone();
+    warnings.extend(writer.warnings.clone());
+    (markup, warnings)
+}
+
 /// Render one page to a complete HTML document.
 ///
 /// Separate from [`export`] because the MCP snapshot tool and the studio's preview both
@@ -79,7 +95,8 @@ pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String
     let compiled = anim::compile(doc, page);
 
     let mut writer = svg::SvgWriter::new(&compiled.dashed, &compiled.animated);
-    let markup = writer.page(page);
+    // The stylesheet paints the page colour; see `SvgWriter::page`.
+    let markup = writer.page(page, false);
 
     let mut warnings = compiled.warnings.clone();
     warnings.extend(writer.warnings.clone());
@@ -310,14 +327,31 @@ mod tests {
         assert!(html.contains("Design in motion"));
     }
 
+    /// Exactly one of the two owns the page colour, and it is CSS — the body extends
+    /// past the artwork, so painting both would composite a translucent background
+    /// against itself and leave a seam at the bottom edge of the canvas.
     #[test]
-    fn the_page_background_reaches_both_the_svg_and_the_body() {
+    fn the_page_background_is_painted_by_css_and_only_by_css() {
         let html = render(&doc());
         assert!(
             html.contains("background:#0b1020"),
             "body background missing: {html}"
         );
-        assert!(html.contains("fill=\"#0b1020\""), "svg background missing");
+        assert!(
+            !html.contains("<rect width=\"1440\" height=\"900\" fill=\"#0b1020\""),
+            "the SVG painted the background too: {html}"
+        );
+    }
+
+    /// …and the rasterizer, which has no stylesheet, still gets one.
+    #[test]
+    fn a_rendered_svg_carries_the_background_itself() {
+        let d = doc();
+        let (svg, _) = render_svg(&d, &d.pages[0], true);
+        assert!(
+            svg.contains("fill=\"#0b1020\""),
+            "a standalone SVG lost the page colour: {svg}"
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@
 import { For, Show } from "solid-js";
 import { fmt, toSvg } from "../math";
 import { state } from "../store";
-import type { Effect, Node, Paint, Stroke } from "../types";
+import type { Effect, GradientStop, Node, Paint, Stroke } from "../types";
 
 /** Stable, collision-free id for a gradient or filter belonging to one node. */
 function defId(nodeId: string, kind: string, i: number) {
@@ -26,7 +26,7 @@ export function paintValue(paint: Paint | undefined, nodeId: string, i: number):
   if (!paint) return "none";
   switch (paint.type) {
     case "solid":
-      return paint.color.slice(0, 7);
+      return colorHex(paint.color);
     case "linearGradient":
       return `url(#${defId(nodeId, "lg", i)})`;
     case "radialGradient":
@@ -36,14 +36,23 @@ export function paintValue(paint: Paint | undefined, nodeId: string, i: number):
   }
 }
 
+/** The `#rrggbb` half of a colour — all any SVG colour attribute will accept. */
+function colorHex(color: string): string {
+  return color.slice(0, 7);
+}
+
+/** A colour's alpha, which has to travel separately in an opacity attribute. */
+function colorAlpha(color: string): number {
+  return color.length === 9 ? parseInt(color.slice(7, 9), 16) / 255 : 1;
+}
+
 function paintOpacity(paint: Paint | undefined): number {
   if (!paint) return 1;
   const base = paint.opacity ?? 1;
   // A hex with alpha carries its own transparency; multiply the two rather than
-  // letting one silently win.
-  if (paint.type === "solid" && paint.color.length === 9) {
-    return base * (parseInt(paint.color.slice(7, 9), 16) / 255);
-  }
+  // letting one silently win. Gradient stops carry theirs in `stop-opacity`, so only
+  // the paint's own opacity applies there.
+  if (paint.type === "solid") return base * colorAlpha(paint.color);
   return base;
 }
 
@@ -55,42 +64,69 @@ function PaintDefs(props: { node: Node }) {
 
   return (
     <For each={paints()}>
-      {(entry) => (
-        <Show when={entry.paint.type !== "solid"}>
-          <Show when={entry.paint.type === "linearGradient" && entry.paint}>
-            {(p) => (
+      {(entry) => {
+        // Switching on the paint in plain code, rather than testing its tag inside a
+        // `when`, is what lets each branch see the one variant it is written for. The
+        // union narrows, so a paint that gains or renames a field fails to compile here
+        // instead of quietly rendering as the wrong kind.
+        const paint = entry.paint;
+        switch (paint.type) {
+          case "solid":
+            return null;
+          case "linearGradient":
+            return (
               <linearGradient
                 id={defId(props.node.id, "lg", entry.i)}
-                x1={p().type === "linearGradient" ? (p() as any).from[0] : 0}
-                y1={p().type === "linearGradient" ? (p() as any).from[1] : 0}
-                x2={p().type === "linearGradient" ? (p() as any).to[0] : 1}
-                y2={p().type === "linearGradient" ? (p() as any).to[1] : 1}
+                x1={paint.from[0]}
+                y1={paint.from[1]}
+                x2={paint.to[0]}
+                y2={paint.to[1]}
               >
-                <For each={(p() as any).stops}>
-                  {(stop: { offset: number; color: string }) => (
-                    <stop offset={stop.offset} stop-color={stop.color.slice(0, 7)} />
-                  )}
-                </For>
+                <Stops stops={paint.stops} />
               </linearGradient>
-            )}
-          </Show>
-          <Show when={entry.paint.type === "radialGradient" && entry.paint}>
-            {(p) => (
+            );
+          case "radialGradient":
+            return (
               <radialGradient
                 id={defId(props.node.id, "rg", entry.i)}
-                cx={(p() as any).center[0]}
-                cy={(p() as any).center[1]}
-                r={(p() as any).radius}
+                cx={paint.center[0]}
+                cy={paint.center[1]}
+                r={paint.radius}
               >
-                <For each={(p() as any).stops}>
-                  {(stop: { offset: number; color: string }) => (
-                    <stop offset={stop.offset} stop-color={stop.color.slice(0, 7)} />
-                  )}
-                </For>
+                <Stops stops={paint.stops} />
               </radialGradient>
-            )}
-          </Show>
-        </Show>
+            );
+          case "image":
+            return (
+              <pattern
+                id={defId(props.node.id, "pat", entry.i)}
+                patternContentUnits="objectBoundingBox"
+                width={1}
+                height={1}
+              >
+                <image
+                  href={`assets/${paint.asset}`}
+                  width={1}
+                  height={1}
+                  preserveAspectRatio="xMidYMid slice"
+                />
+              </pattern>
+            );
+        }
+      }}
+    </For>
+  );
+}
+
+function Stops(props: { stops: GradientStop[] }) {
+  return (
+    <For each={props.stops}>
+      {(stop) => (
+        <stop
+          offset={stop.offset}
+          stop-color={colorHex(stop.color)}
+          stop-opacity={colorAlpha(stop.color)}
+        />
       )}
     </For>
   );
@@ -107,28 +143,57 @@ function EffectDefs(props: { node: Node }) {
         width="200%"
         height="200%"
       >
-        <For each={effects()}>
-          {(effect: Effect) => (
-            <>
-              <Show when={effect.type === "blur" && effect}>
-                {(e) => <feGaussianBlur stdDeviation={(e() as any).radius / 2} />}
-              </Show>
-              <Show when={effect.type === "dropShadow" && effect}>
-                {(e) => (
-                  <feDropShadow
-                    dx={(e() as any).dx}
-                    dy={(e() as any).dy}
-                    stdDeviation={(e() as any).blur / 2}
-                    flood-color={(e() as any).color.slice(0, 7)}
-                  />
-                )}
-              </Show>
-            </>
-          )}
-        </For>
+        <For each={effects()}>{(effect, i) => effectPrimitives(effect, i())}</For>
       </filter>
     </Show>
   );
+}
+
+/**
+ * The filter primitives one effect turns into.
+ *
+ * An effect with no branch here would leave the filter empty, and an empty filter's
+ * output is transparent black — the node would vanish rather than merely lose its
+ * shadow, so every variant has to be handled.
+ */
+function effectPrimitives(effect: Effect, index: number) {
+  switch (effect.type) {
+    case "blur":
+      // SVG's stdDeviation is roughly half a CSS blur radius.
+      return <feGaussianBlur stdDeviation={effect.radius / 2} />;
+    case "dropShadow":
+      return (
+        <feDropShadow
+          dx={effect.dx}
+          dy={effect.dy}
+          stdDeviation={effect.blur / 2}
+          flood-color={colorHex(effect.color)}
+          flood-opacity={colorAlpha(effect.color)}
+        />
+      );
+    case "innerShadow": {
+      // SVG has no inner-shadow primitive, so it is assembled: offset and blur the
+      // source's alpha, subtract that from the alpha to leave the band just inside the
+      // edge, and flood the band with the colour. Every step names its input and its
+      // output, because implicit chaining reads as if the primitives compose in order
+      // when they do not.
+      const k = `inner${index}`;
+      return (
+        <>
+          <feOffset in="SourceAlpha" dx={effect.dx} dy={effect.dy} result={`${k}-offset`} />
+          <feGaussianBlur in={`${k}-offset`} stdDeviation={effect.blur / 2} result={`${k}-blur`} />
+          <feComposite in="SourceAlpha" in2={`${k}-blur`} operator="out" result={`${k}-band`} />
+          <feFlood
+            flood-color={colorHex(effect.color)}
+            flood-opacity={colorAlpha(effect.color)}
+            result={`${k}-colour`}
+          />
+          <feComposite in={`${k}-colour`} in2={`${k}-band`} operator="in" result={`${k}-shadow`} />
+          <feComposite in={`${k}-shadow`} in2="SourceGraphic" operator="over" />
+        </>
+      );
+    }
+  }
 }
 
 function strokeAttrs(stroke: Stroke, nodeId: string, i: number) {
@@ -204,6 +269,9 @@ function TextNode(props: { node: Node }) {
       : props.node.align === "right"
         ? (props.node.width ?? 0)
         : 0;
+  // Unfilled text would be invisible, which is never what was meant, so it falls back
+  // to black exactly as the exporter does.
+  const fill = () => props.node.fills?.[0];
 
   return (
     <text
@@ -215,8 +283,15 @@ function TextNode(props: { node: Node }) {
         props.node.letterSpacing ? String(props.node.letterSpacing * size()) : undefined
       }
       text-anchor={anchor()}
-      fill={paintValue(props.node.fills?.[0], props.node.id, 0)}
-      fill-opacity={paintOpacity(props.node.fills?.[0])}
+      text-decoration={
+        props.node.decoration === "underline"
+          ? "underline"
+          : props.node.decoration === "strikethrough"
+            ? "line-through"
+            : undefined
+      }
+      fill={fill() ? paintValue(fill(), props.node.id, 0) : "#000000"}
+      fill-opacity={paintOpacity(fill())}
       style={{
         "text-transform":
           props.node.textCase && props.node.textCase !== "original"
@@ -255,11 +330,22 @@ export function SceneNode(props: { node: Node }) {
 
   const path = () => geometryPath(node());
   const isContainer = () => node().type === "frame" || node().type === "group";
+  const roles = () => node().roles ?? [];
+
+  // A clipping frame's own outline. Clipping to an empty region would delete the
+  // children as well, so a frame with no area keeps them rather than compounding the
+  // loss — the same bargain the exporter strikes.
+  const clipShape = () => (node().type === "frame" && node().clip ? path() : null);
+  const clipId = () => defId(node().id, "clip", 0);
 
   return (
     <Show when={node().visible !== false}>
       <g
         data-node-id={node().id}
+        data-md-id={node().id}
+        data-md-name={node().name || undefined}
+        data-md-role={roles()[0]}
+        class={roles().length ? roles().join(" ") : undefined}
         transform={transform()}
         opacity={node().opacity ?? 1}
         filter={node().effects?.length ? `url(#${defId(node().id, "fx", 0)})` : undefined}
@@ -271,19 +357,34 @@ export function SceneNode(props: { node: Node }) {
       >
         <PaintDefs node={node()} />
         <EffectDefs node={node()} />
+        <Show when={clipShape()}>
+          {(d) => (
+            <clipPath id={clipId()}>
+              <path d={d()} />
+            </clipPath>
+          )}
+        </Show>
 
         <g transform={live() ? toSvg(live()!) : undefined}>
           <Show when={node().type === "text"}>
             <TextNode node={node()} />
           </Show>
 
-          <Show when={node().type === "image"}>
-            <image
-              href={node().asset}
-              width={node().width}
-              height={node().height}
-              preserveAspectRatio={node().fit === "contain" ? "xMidYMid meet" : "xMidYMid slice"}
-            />
+          <Show when={node().type === "image" && node().asset}>
+            {(asset) => (
+              <image
+                href={`assets/${asset()}`}
+                width={node().width}
+                height={node().height}
+                preserveAspectRatio={
+                  node().fit === "contain"
+                    ? "xMidYMid meet"
+                    : node().fit === "fill"
+                      ? "none"
+                      : "xMidYMid slice"
+                }
+              />
+            )}
           </Show>
 
           <Show when={path()}>
@@ -314,7 +415,9 @@ export function SceneNode(props: { node: Node }) {
           </Show>
 
           <Show when={isContainer()}>
-            <For each={node().children ?? []}>{(child) => <SceneNode node={child} />}</For>
+            <g clip-path={clipShape() ? `url(#${clipId()})` : undefined}>
+              <For each={node().children ?? []}>{(child) => <SceneNode node={child} />}</For>
+            </g>
           </Show>
         </g>
       </g>

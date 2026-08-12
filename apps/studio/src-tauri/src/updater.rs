@@ -86,7 +86,10 @@ pub async fn check(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
 
     let latest = release.tag_name.trim_start_matches('v').to_string();
 
-    let newer = match (semver::Version::parse(&latest), semver::Version::parse(&current)) {
+    let newer = match (
+        semver::Version::parse(&latest),
+        semver::Version::parse(&current),
+    ) {
         (Ok(l), Ok(c)) => l > c,
         // An unparseable tag means someone published something odd. Comparing strings
         // would be a coin flip, so treat it as "nothing to offer" rather than nagging
@@ -95,7 +98,11 @@ pub async fn check(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     };
 
     if !newer {
-        return Ok(UpdateInfo { available: false, current_version: current, ..Default::default() });
+        return Ok(UpdateInfo {
+            available: false,
+            current_version: current,
+            ..Default::default()
+        });
     }
 
     let asset = pick_asset(&release.assets);
@@ -142,8 +149,16 @@ fn pick_asset(assets: &[Asset]) -> Option<&Asset> {
         &[".AppImage", ".deb"]
     };
 
+    // Case-insensitive on both sides. Comparing a lowercased asset name against the
+    // literal `.AppImage` silently never matched, so a Linux release offered the .deb
+    // to everyone — the kind of bug that only shows up as "the updater picked the wrong
+    // file", long after the release went out.
     for suffix in wanted {
-        if let Some(asset) = assets.iter().find(|a| a.name.to_lowercase().ends_with(suffix)) {
+        let suffix = suffix.to_lowercase();
+        if let Some(asset) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(&suffix))
+        {
             return Some(asset);
         }
     }
@@ -253,17 +268,22 @@ pub async fn install(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|e| e.to_string())??;
 
     // Hand off to the system package installer. The user confirms; the app cannot.
-    tauri_plugin_opener::open_path(downloaded.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|e| {
+    tauri_plugin_opener::open_path(downloaded.to_string_lossy().to_string(), None::<&str>).map_err(
+        |e| {
             format!(
                 "Android would not open the installer ({e}). \
                  Install it from the release page instead."
             )
-        })
+        },
+    )
 }
 
 #[cfg(target_os = "android")]
-fn download_verified(url: &str, expected_sha256: &str, target: &PathBuf) -> Result<PathBuf, String> {
+fn download_verified(
+    url: &str,
+    expected_sha256: &str,
+    target: &PathBuf,
+) -> Result<PathBuf, String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
 
@@ -326,31 +346,68 @@ mod tests {
         assert!(find_hash("| app.apk | pending |", "app.apk").is_none());
     }
 
+    /// One asset per platform the picker knows about, so this runs the same on every
+    /// host rather than passing on Windows and failing on the Linux CI runner.
+    fn every_platforms_assets() -> Vec<Asset> {
+        [
+            "master-design_0.2.0_x64-setup.exe",
+            "master-design_0.2.0_x64_en-US.msi",
+            "master-design-0.2.0.apk",
+            "master-design_0.2.0_aarch64.app.tar.gz",
+            "master-design_0.2.0_amd64.AppImage",
+            "master-design_0.2.0_amd64.deb",
+        ]
+        .into_iter()
+        .map(|name| Asset {
+            name: name.into(),
+            browser_download_url: format!("https://example/{name}"),
+        })
+        .collect()
+    }
+
     #[test]
     fn the_platform_asset_is_picked_by_suffix() {
-        let assets = vec![
-            Asset {
-                name: "master-design_0.2.0_x64-setup.exe".into(),
-                browser_download_url: "https://example/setup".into(),
-            },
-            Asset {
-                name: "master-design-0.2.0.apk".into(),
-                browser_download_url: "https://example/apk".into(),
-            },
-        ];
-        let picked = pick_asset(&assets).expect("an asset should match this platform");
-        if cfg!(target_os = "android") {
-            assert!(picked.name.ends_with(".apk"));
+        let assets = every_platforms_assets();
+        let picked = pick_asset(&assets).expect("no asset matched this platform");
+
+        let expected = if cfg!(target_os = "android") {
+            ".apk"
         } else if cfg!(target_os = "windows") {
-            assert!(picked.name.ends_with("-setup.exe"));
-        }
+            // Preferred over the .msi that is also present: it is the one the bundled
+            // updater can apply in place.
+            "-setup.exe"
+        } else if cfg!(target_os = "macos") {
+            ".app.tar.gz"
+        } else {
+            ".AppImage"
+        };
+        assert!(
+            picked.name.ends_with(expected),
+            "picked {} but this platform wants {expected}",
+            picked.name
+        );
+    }
+
+    #[test]
+    fn a_release_with_nothing_for_this_platform_offers_nothing() {
+        // Better than handing the user an artifact they cannot install: `check` leaves
+        // `download_url` empty and the banner falls back to the release page.
+        let assets = vec![Asset {
+            name: "source-code.tar.gz".into(),
+            browser_download_url: "https://example/src".into(),
+        }];
+        assert!(pick_asset(&assets).is_none());
     }
 
     #[test]
     fn notes_are_trimmed_to_something_a_banner_can_hold() {
         let body = format!("# Heading\n\n{}\n\n| table | row |", "word ".repeat(200));
         let summary = summarize(&body);
-        assert!(summary.chars().count() <= 240, "got {} chars", summary.chars().count());
+        assert!(
+            summary.chars().count() <= 240,
+            "got {} chars",
+            summary.chars().count()
+        );
         assert!(!summary.contains('|'));
         assert!(!summary.contains('#'));
     }

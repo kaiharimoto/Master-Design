@@ -110,7 +110,15 @@ export const selectionBounds = createMemo<m.Rect | null>(() => {
   return acc;
 });
 
-/** A node's untransformed extent, for shapes whose size the document states outright. */
+/**
+ * A node's untransformed extent.
+ *
+ * Mirrors `md_doc::Node::local_bounds`, including the kinds whose size the document does
+ * not state outright: everything with a box gets it from the box, a group is the union of
+ * its children, and a path is measured. A `null` here is what stops a node being
+ * selectable, resizable or catchable by the marquee, so the only kinds that return one
+ * are the ones with genuinely nothing to measure yet.
+ */
 export function localBounds(node: Node): m.Rect | null {
   switch (node.type) {
     case "frame":
@@ -131,10 +139,29 @@ export function localBounds(node: Node): m.Rect | null {
         h: node.height ?? lines.length * size * (node.lineHeight ?? 1.4),
       };
     }
-    case "group":
-      return null;
-    case "path":
-      return null;
+    case "group": {
+      // A group has no extent of its own; it is exactly what it contains, each child
+      // measured in the group's own space. Without this a group could never show a
+      // handle, be resized, or be caught by the marquee.
+      let acc: m.Rect | null = null;
+      for (const child of node.children ?? []) {
+        const local = localBounds(child);
+        if (!local) continue;
+        const inParent = child.transform ? m.transformRect(child.transform, local) : local;
+        acc = acc ? m.rectUnion(acc, inParent) : inParent;
+      }
+      return acc;
+    }
+    case "path": {
+      // The browser has already computed the outline's extent for the element on
+      // screen; asking it beats carrying a second path-measuring implementation that
+      // would have to agree with `md-geom`. Before the element mounts there is nothing
+      // to measure, and the memo re-runs once it does.
+      const el = document.querySelector(`[data-node-id="${node.id}"] path`);
+      if (!(el instanceof SVGGraphicsElement)) return null;
+      const box = el.getBBox();
+      return { x: box.x, y: box.y, w: box.width, h: box.height };
+    }
   }
 }
 

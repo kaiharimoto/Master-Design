@@ -317,6 +317,11 @@ impl Track {
     /// Returns `None` for an empty track. Progress outside 0..1 clamps to the first or
     /// last keyframe, which is what "before it started" and "after it ended" should look
     /// like for a fill-forwards animation.
+    ///
+    /// Keyframes are taken to be in ascending order with times in 0..=1. Nothing here
+    /// re-checks that: the patch protocol refuses a track that is not, so the invariant
+    /// is established at the door rather than on every sample. A hand-edited project
+    /// file is the one way past it, and samples to a wrong value rather than failing.
     pub fn sample(&self, p: f64) -> Option<Value> {
         if self.keyframes.is_empty() {
             return None;

@@ -1,8 +1,8 @@
 //! The page shell: document head, stylesheet, and the accessibility outline.
 
-use crate::svg::{esc_attr, esc_text};
+use crate::svg::{esc_attr, esc_text, num};
 use md_doc::node::{Node, NodeKind};
-use md_doc::{Document, Page};
+use md_doc::{Color, Document, Page};
 use std::fmt::Write;
 
 /// Assemble a complete HTML document.
@@ -42,7 +42,10 @@ pub fn page_html(
 
     let anim_payload = animations
         .map(|json| {
-            format!("<script type=\"application/json\" id=\"md-animations\">{json}</script>")
+            format!(
+                "<script type=\"application/json\" id=\"md-animations\">{}</script>",
+                escape_in_script(json)
+            )
         })
         .unwrap_or_default();
 
@@ -72,6 +75,39 @@ pub fn page_html(
     )
 }
 
+/// Make a JSON payload safe to sit inside a `<script>` element.
+///
+/// The HTML parser looks for `</script` inside a script element before any JSON parser
+/// gets a say, and `serde_json` has no reason to escape `<`. A keyframe value is an
+/// arbitrary string from the document, so without this a fill colour spelled
+/// `</script><script>…` would close the element and run as markup. The unicode escapes
+/// are the same string to a JSON parser and inert to the HTML one.
+fn escape_in_script(json: &str) -> String {
+    json.replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+}
+
+/// A solid paint as a CSS colour, keeping whatever alpha it carries.
+///
+/// The alpha can live in two places — the paint's `opacity` and the last two hex digits
+/// of the colour — and CSS `background` takes one value, so the two are multiplied.
+/// Taking only `#rrggbb` exported every translucent background fully opaque.
+fn css_color(color: &Color, opacity: f64) -> String {
+    let [r, g, b, a] = color.rgba();
+    let alpha = a * opacity;
+    if alpha >= 1.0 {
+        return color.hex_rgb();
+    }
+    format!(
+        "rgba({},{},{},{})",
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+        num(alpha)
+    )
+}
+
 /// Base stylesheet. Short on purpose — the design is in the SVG, and CSS here exists
 /// only to place it and to give the animation runtime somewhere safe to work.
 pub fn stylesheet(page: &Page) -> String {
@@ -79,7 +115,7 @@ pub fn stylesheet(page: &Page) -> String {
         .background
         .as_ref()
         .and_then(|p| match p {
-            md_doc::Paint::Solid { color, .. } => Some(color.hex_rgb()),
+            md_doc::Paint::Solid { color, opacity } => Some(css_color(color, *opacity)),
             _ => None,
         })
         .unwrap_or_else(|| "#ffffff".to_string());
@@ -236,7 +272,7 @@ mod tests {
     use super::*;
     use md_doc::node::{NodeKind, RectGeometry};
     use md_doc::text::TextGeometry;
-    use md_doc::{A11y, Node, NodeId, PageId};
+    use md_doc::{A11y, Color, Document, Node, NodeId, PageId, Paint};
 
     fn page() -> Page {
         let mut p = Page::new(PageId::from_static("pg_1"), "Home", "index", 1440.0, 900.0);
@@ -357,5 +393,58 @@ mod tests {
             !css.contains("display:none"),
             "display:none would hide it from screen readers"
         );
+    }
+
+    #[test]
+    fn a_keyframe_cannot_break_out_of_the_animation_payload() {
+        // A `fill` keyframe is an arbitrary string that reaches the payload verbatim,
+        // and serde_json leaves `<` and `>` alone.
+        let payload = serde_json::to_string(&serde_json::json!({
+            "entries": [{
+                "selector": "[data-md-fx=\"nd_a\"]",
+                "keyframes": [{ "fill": "</script><script>alert(1)</script>" }],
+            }],
+        }))
+        .unwrap();
+
+        let html = page_html(
+            &Document::new("Test"),
+            &page(),
+            "<svg></svg>",
+            Some(&payload),
+            None,
+            false,
+        );
+
+        assert!(
+            !html.contains("<script>alert(1)"),
+            "the payload closed its own element and injected a script: {html}"
+        );
+        assert!(
+            html.contains("\\u003c/script\\u003e"),
+            "the escape did not survive into the page: {html}"
+        );
+    }
+
+    #[test]
+    fn a_translucent_page_background_keeps_its_alpha() {
+        let mut p = page();
+        p.background = Some(Paint::Solid {
+            color: Color::parse("#0b102080").unwrap(),
+            opacity: 1.0,
+        });
+        let css = stylesheet(&p);
+        assert!(
+            css.contains("background:rgba(11,16,32,0.502)"),
+            "a translucent background exported opaque: {css}"
+        );
+    }
+
+    #[test]
+    fn an_opaque_page_background_stays_a_plain_hex() {
+        let mut p = page();
+        p.background = Some(Paint::solid("#0b1020").unwrap());
+        let css = stylesheet(&p);
+        assert!(css.contains("background:#0b1020"), "got {css}");
     }
 }

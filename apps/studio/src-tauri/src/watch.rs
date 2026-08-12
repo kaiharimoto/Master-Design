@@ -22,7 +22,7 @@ use notify_debouncer_mini::new_debouncer;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
 /// How long after our own save to keep ignoring filesystem events.
@@ -50,10 +50,6 @@ pub struct WatchGate {
 }
 
 impl WatchGate {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Call immediately *before* writing the project to disk.
     pub fn mark_self_write(&self) {
         self.last_self_write_ms.store(now_ms(), Ordering::Relaxed);
@@ -144,19 +140,17 @@ pub fn watch_project(
     Ok(Box::new(debouncer))
 }
 
-/// Test hook: how long the grace period lasts.
-pub fn self_write_grace() -> Duration {
-    SELF_WRITE_GRACE
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn our_own_writes_are_ignored_for_the_grace_period() {
-        let gate = WatchGate::new();
-        assert!(!gate.is_recent_self_write(), "a gate that never wrote should not gate");
+        let gate = WatchGate::default();
+        assert!(
+            !gate.is_recent_self_write(),
+            "a gate that never wrote should not gate"
+        );
 
         gate.mark_self_write();
         assert!(gate.is_recent_self_write());
@@ -164,10 +158,12 @@ mod tests {
 
     #[test]
     fn a_write_long_enough_ago_stops_being_ignored() {
-        let gate = WatchGate::new();
+        let gate = WatchGate::default();
         // Stamp a time comfortably outside the window rather than sleeping for it.
-        gate.last_self_write_ms
-            .store(now_ms() - SELF_WRITE_GRACE.as_millis() as u64 - 100, Ordering::Relaxed);
+        gate.last_self_write_ms.store(
+            now_ms() - SELF_WRITE_GRACE.as_millis() as u64 - 100,
+            Ordering::Relaxed,
+        );
         assert!(!gate.is_recent_self_write());
     }
 
@@ -202,7 +198,7 @@ mod tests {
         // Otherwise a save's own event could arrive after the gate had already reopened,
         // and the studio would reload over the change it had just made.
         assert!(
-            self_write_grace() > DEBOUNCE,
+            SELF_WRITE_GRACE > DEBOUNCE,
             "grace {SELF_WRITE_GRACE:?} must exceed debounce {DEBOUNCE:?}"
         );
     }

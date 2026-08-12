@@ -344,4 +344,94 @@ mod tests {
     fn one_operand_is_an_error() {
         assert!(boolean_op(&[square(0.0, 0.0, 1.0)], BoolOp::Union, 0.01, false).is_err());
     }
+
+    #[test]
+    fn exclude_keeps_everything_but_the_overlap() {
+        let out = boolean_op(
+            &[square(0.0, 0.0, 10.0), square(5.0, 5.0, 10.0)],
+            BoolOp::Exclude,
+            0.01,
+            false,
+        )
+        .unwrap();
+        // The shared quadrant is gone; the parts covered exactly once remain.
+        assert!(!hit_test_fill(&out, 7.0, 7.0, FillRule::EvenOdd).unwrap());
+        assert!(hit_test_fill(&out, 2.0, 2.0, FillRule::EvenOdd).unwrap());
+        assert!(hit_test_fill(&out, 13.0, 13.0, FillRule::EvenOdd).unwrap());
+        let b = bounds(&out).unwrap();
+        assert!(
+            (b.w - 15.0).abs() < 0.2 && (b.h - 15.0).abs() < 0.2,
+            "got {b:?}"
+        );
+    }
+
+    #[test]
+    fn intersecting_disjoint_shapes_yields_nothing() {
+        let out = boolean_op(
+            &[square(0.0, 0.0, 10.0), square(100.0, 100.0, 10.0)],
+            BoolOp::Intersect,
+            0.01,
+            false,
+        )
+        .unwrap();
+        // An empty result is a legitimate answer, so it comes back as empty path data
+        // rather than an error — but nothing downstream may panic on it.
+        assert_eq!(out, "");
+        assert!(!hit_test_fill(&out, 0.0, 0.0, FillRule::NonZero).unwrap());
+        assert!(bounds(&out).is_err());
+    }
+
+    #[test]
+    fn accumulating_three_operands_visits_every_one() {
+        // A horizontal band, then two squares that each bite a different chunk out of
+        // it. If the loop stopped after the first operand the second bite would survive.
+        let band = "M 0 0 L 30 0 L 30 10 L 0 10 Z".to_string();
+        let out = boolean_op(
+            &[band, square(5.0, 5.0, 5.0), square(20.0, 5.0, 5.0)],
+            BoolOp::Subtract,
+            0.01,
+            false,
+        )
+        .unwrap();
+        assert!(!hit_test_fill(&out, 7.0, 7.0, FillRule::EvenOdd).unwrap());
+        assert!(!hit_test_fill(&out, 22.0, 7.0, FillRule::EvenOdd).unwrap());
+        assert!(hit_test_fill(&out, 15.0, 7.0, FillRule::EvenOdd).unwrap());
+        assert!(hit_test_fill(&out, 7.0, 2.0, FillRule::EvenOdd).unwrap());
+    }
+
+    #[test]
+    fn union_of_three_spans_them_all() {
+        let out = boolean_op(
+            &[
+                square(0.0, 0.0, 10.0),
+                square(8.0, 0.0, 10.0),
+                square(16.0, 0.0, 10.0),
+            ],
+            BoolOp::Union,
+            0.01,
+            false,
+        )
+        .unwrap();
+        let b = bounds(&out).unwrap();
+        assert!((b.w - 26.0).abs() < 0.2, "got {b:?}");
+        assert!((b.h - 10.0).abs() < 0.2, "got {b:?}");
+    }
+
+    #[test]
+    fn a_non_positive_tolerance_falls_back_to_the_default() {
+        let operands = [
+            crate::ellipse_path(0.0, 0.0, 50.0, 50.0),
+            crate::ellipse_path(40.0, 0.0, 50.0, 50.0),
+        ];
+        let reference = boolean_op(&operands, BoolOp::Union, DEFAULT_TOLERANCE, true).unwrap();
+        // Refit derives its simplify and fit tolerances from this number, so a zero would
+        // not merely flatten finely — it would ask the fitter for an impossible fit.
+        for bad in [0.0, -1.0, -DEFAULT_TOLERANCE] {
+            assert_eq!(
+                boolean_op(&operands, BoolOp::Union, bad, true).unwrap(),
+                reference,
+                "tolerance {bad} should behave as the default"
+            );
+        }
+    }
 }

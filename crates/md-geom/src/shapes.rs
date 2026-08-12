@@ -42,13 +42,37 @@ pub fn rect_path(x: f64, y: f64, w: f64, h: f64, radii: [f64; 4]) -> String {
     to_svg(&rect.to_path(ARC_TOLERANCE))
 }
 
+/// Expand a variable-length radius list into the four corners [`rect_path`] takes,
+/// following CSS `border-radius` shorthand: one value covers every corner, two pair the
+/// diagonals, three name top-left and bottom-right with the remaining diagonal shared,
+/// four are given in order. Surplus values are ignored.
+///
+/// The document always stores four, but the WASM and IPC surfaces accept the shorthand
+/// because that is the spelling designers and the AI already know. Every caller that
+/// takes a list routes through here so the shorthand cannot mean different things on
+/// different platforms.
+pub fn expand_radii(radii: &[f64]) -> [f64; 4] {
+    match *radii {
+        [] => [0.0; 4],
+        [all] => [all; 4],
+        [tl_br, tr_bl] => [tl_br, tr_bl, tl_br, tr_bl],
+        [tl, tr_bl, br] => [tl, tr_bl, br, tr_bl],
+        [tl, tr, br, bl, ..] => [tl, tr, br, bl],
+    }
+}
+
 /// Ellipse centred on `(cx, cy)`.
 pub fn ellipse_path(cx: f64, cy: f64, rx: f64, ry: f64) -> String {
     if rx <= 0.0 || ry <= 0.0 {
         return String::new();
     }
     let e = Ellipse::new(Point::new(cx, cy), Vec2::new(rx, ry), 0.0);
-    to_svg(&e.to_path(ARC_TOLERANCE))
+    let mut p = e.to_path(ARC_TOLERANCE);
+    // kurbo hands back an open run of curves. Left that way the renderer puts two line
+    // caps where the three-o'clock seam wants a join, which a thick stroke shows as a
+    // notch, and any consumer that cares about closed rings sees a stray open subpath.
+    p.close_path();
+    to_svg(&p)
 }
 
 /// Regular polygon with `sides` vertices, first vertex placed at `rotation` radians
@@ -301,6 +325,59 @@ mod tests {
         assert!(
             (b.w - 60.0).abs() < 0.05 && (b.h - 20.0).abs() < 0.05,
             "got {b:?}"
+        );
+    }
+
+    #[test]
+    fn ellipse_is_a_closed_ring() {
+        let d = ellipse_path(0.0, 0.0, 30.0, 20.0);
+        assert!(d.ends_with('Z'), "expected a closed path, got {d}");
+    }
+
+    #[test]
+    fn a_thick_stroked_ellipse_has_no_seam() {
+        // Left open, the outline is a single loop stitched shut across the three-o'clock
+        // seam by two coincident caps; closed, it is the two rings of a proper annulus.
+        let d = ellipse_path(0.0, 0.0, 30.0, 20.0);
+        let style = crate::StrokeStyle {
+            width: 10.0,
+            ..Default::default()
+        };
+        let out = crate::outline_stroke(&d, &style).unwrap();
+        assert_eq!(
+            out.matches('M').count(),
+            2,
+            "expected an outer and an inner ring, got {out}"
+        );
+
+        let b = bounds(&out).unwrap();
+        assert!(
+            (b.w - 70.0).abs() < 0.1 && (b.h - 50.0).abs() < 0.1,
+            "half a stroke width past each side, got {b:?}"
+        );
+        // The middle of the ring is a hole, not fill.
+        assert!(!hit_test_fill(&out, 0.0, 0.0, FillRule::NonZero).unwrap());
+        assert!(hit_test_fill(&out, 30.0, 0.0, FillRule::NonZero).unwrap());
+    }
+
+    #[test]
+    fn radius_shorthand_follows_css() {
+        assert_eq!(expand_radii(&[]), [0.0; 4]);
+        assert_eq!(expand_radii(&[5.0]), [5.0; 4]);
+        // Two values pair the diagonals: top-left with bottom-right, top-right with
+        // bottom-left.
+        assert_eq!(expand_radii(&[5.0, 9.0]), [5.0, 9.0, 5.0, 9.0]);
+        // Three name top-left and bottom-right, and share the middle value across the
+        // other diagonal.
+        assert_eq!(expand_radii(&[5.0, 9.0, 2.0]), [5.0, 9.0, 2.0, 9.0]);
+        assert_eq!(expand_radii(&[5.0, 9.0, 2.0, 7.0]), [5.0, 9.0, 2.0, 7.0]);
+    }
+
+    #[test]
+    fn radius_shorthand_ignores_surplus_values() {
+        assert_eq!(
+            expand_radii(&[5.0, 9.0, 2.0, 7.0, 99.0]),
+            [5.0, 9.0, 2.0, 7.0]
         );
     }
 

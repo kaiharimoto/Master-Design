@@ -27,7 +27,7 @@ pub use path::{
     bounds, flatten_path, normalize, parse, path_length, point_at_length, to_svg, transform_path,
     Bounds,
 };
-pub use shapes::{ellipse_path, polygon_path, rect_path, round_corners, star_path};
+pub use shapes::{ellipse_path, expand_radii, polygon_path, rect_path, round_corners, star_path};
 pub use stroke::{outline_stroke, LineCap, LineJoin, StrokeStyle};
 
 /// Tolerance used whenever we approximate curves by line segments.
@@ -43,14 +43,32 @@ pub const DEFAULT_TOLERANCE: f64 = 0.01;
 /// geometry kernel would produce spurious diffs.
 pub const COORD_PRECISION: usize = 4;
 
+/// Is `v` safe to write out as a coordinate?
+///
+/// [`fmt_coord`] cannot report a bad value — it is infallible by design — so anything
+/// that can produce a non-finite number (a singular matrix, a divide by zero in a layout
+/// solve, a malformed import) should ask here and raise its own error while it still has
+/// the context to say what went wrong.
+pub fn is_finite_coord(v: f64) -> bool {
+    v.is_finite()
+}
+
 /// Format a float the way every coordinate in this system is formatted: rounded to
 /// [`COORD_PRECISION`] and stripped of trailing zeros, so `1.0` prints as `1` and
 /// `0.30000000000000004` prints as `0.3`.
 ///
 /// The stripping is what makes it idempotent — formatting an already-formatted value
 /// reproduces it byte for byte, which is the property canonical serialization relies on.
+///
+/// NaN and both infinities are written as `0`. That is a deliberate last line of defence
+/// rather than error handling: this runs on every coordinate of every serialization and
+/// every WASM call, so it stays total, and `NaN` in path data would produce a document no
+/// SVG parser — ours included — could read back. The cost is real, though, and it is why
+/// [`is_finite_coord`] exists: by the time a value reaches here the corruption is
+/// indistinguishable from a legitimate origin, so callers that can generate non-finite
+/// coordinates must check before formatting instead of relying on this.
 pub fn fmt_coord(v: f64) -> String {
-    if !v.is_finite() {
+    if !is_finite_coord(v) {
         return "0".to_string();
     }
     let mut s = format!("{:.*}", COORD_PRECISION, v);
@@ -93,5 +111,31 @@ mod tests {
         assert_eq!(fmt_coord(-0.0), "0");
         assert_eq!(fmt_coord(0.30000000000000004), "0.3");
         assert_eq!(fmt_coord(2.5), "2.5");
+    }
+
+    #[test]
+    fn non_finite_coords_are_written_as_zero() {
+        // Pinning the documented fallback: the output has to stay parseable, so a
+        // coordinate that has already gone wrong lands at the origin rather than
+        // spelling `NaN` into path data.
+        assert_eq!(fmt_coord(f64::NAN), "0");
+        assert_eq!(fmt_coord(f64::INFINITY), "0");
+        assert_eq!(fmt_coord(f64::NEG_INFINITY), "0");
+    }
+
+    #[test]
+    fn non_finite_coords_are_detectable_before_formatting() {
+        assert!(!is_finite_coord(f64::NAN));
+        assert!(!is_finite_coord(f64::INFINITY));
+        assert!(!is_finite_coord(f64::NEG_INFINITY));
+        assert!(is_finite_coord(0.0));
+        assert!(is_finite_coord(-12.345678));
+        assert!(is_finite_coord(f64::MAX));
+    }
+
+    #[test]
+    fn a_non_finite_coordinate_is_indistinguishable_from_the_origin() {
+        // Why the check above has to exist: once formatted, the corruption is gone.
+        assert_eq!(fmt_coord(f64::NAN), fmt_coord(0.0));
     }
 }

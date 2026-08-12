@@ -94,19 +94,11 @@ pub fn outline_stroke_js(d: &str, style: JsValue) -> Result<String, JsValue> {
     crate::outline_stroke(d, &style).map_err(err)
 }
 
+/// `radii` is a CSS `border-radius` shorthand of one to four values; see
+/// [`crate::expand_radii`] for how a short list spreads across the corners.
 #[wasm_bindgen(js_name = rectPath)]
 pub fn rect_path(x: f64, y: f64, w: f64, h: f64, radii: Vec<f64>) -> String {
-    let r = match radii.len() {
-        0 => [0.0; 4],
-        1 => [radii[0]; 4],
-        _ => [
-            radii[0],
-            *radii.get(1).unwrap_or(&radii[0]),
-            *radii.get(2).unwrap_or(&radii[0]),
-            *radii.get(3).unwrap_or(&radii[0]),
-        ],
-    };
-    crate::rect_path(x, y, w, h, r)
+    crate::rect_path(x, y, w, h, crate::expand_radii(&radii))
 }
 
 #[wasm_bindgen(js_name = ellipsePath)]

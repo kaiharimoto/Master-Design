@@ -99,7 +99,10 @@ fn save(studio: &Studio, gate: &watch::WatchGate) -> Result<()> {
 }
 
 fn with_studio<T>(state: &State<AppState>, f: impl FnOnce(&mut Studio) -> Result<T>) -> Result<T> {
-    let mut guard = state.studio.lock().map_err(|_| "editor state is poisoned".to_string())?;
+    let mut guard = state
+        .studio
+        .lock()
+        .map_err(|_| "editor state is poisoned".to_string())?;
     let studio = guard.as_mut().ok_or("no project is open")?;
     f(studio)
 }
@@ -132,7 +135,10 @@ fn load_registry(app: &tauri::AppHandle, project: &Path) -> Registry {
     if let Some(std_dir) = standard_animations(app) {
         registry.load_dir(&std_dir, md_anim::Origin::Standard);
     }
-    registry.load_dir(&project.join(storage::ANIMATIONS_DIR), md_anim::Origin::Project);
+    registry.load_dir(
+        &project.join(storage::ANIMATIONS_DIR),
+        md_anim::Origin::Project,
+    );
     registry
 }
 
@@ -142,12 +148,22 @@ fn load_registry(app: &tauri::AppHandle, project: &Path) -> Registry {
 
 #[tauri::command]
 fn editor_state(state: State<AppState>) -> Result<EditorState> {
-    let guard = state.studio.lock().map_err(|_| "editor state is poisoned".to_string())?;
-    Ok(guard.as_ref().map(EditorState::of).unwrap_or_else(EditorState::empty))
+    let guard = state
+        .studio
+        .lock()
+        .map_err(|_| "editor state is poisoned".to_string())?;
+    Ok(guard
+        .as_ref()
+        .map(EditorState::of)
+        .unwrap_or_else(EditorState::empty))
 }
 
 #[tauri::command]
-fn project_open(app: tauri::AppHandle, state: State<AppState>, path: String) -> Result<EditorState> {
+fn project_open(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> Result<EditorState> {
     let dir = PathBuf::from(&path);
     let root = if storage::is_project_dir(&dir) {
         dir
@@ -179,7 +195,10 @@ fn project_open(app: tauri::AppHandle, state: State<AppState>, path: String) -> 
         _watcher: watcher,
     };
     let snapshot = EditorState::of(&studio);
-    *state.studio.lock().map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
+    *state
+        .studio
+        .lock()
+        .map_err(|_| "editor state is poisoned".to_string())? = Some(studio);
     Ok(snapshot)
 }
 
@@ -230,7 +249,9 @@ fn project_save(state: State<AppState>) -> Result<EditorState> {
 /// moved past.
 #[tauri::command]
 fn project_reload(app: tauri::AppHandle, state: State<AppState>) -> Result<EditorState> {
-    let path = with_studio(&state, |studio| Ok(studio.project_dir.display().to_string()))?;
+    let path = with_studio(&state, |studio| {
+        Ok(studio.project_dir.display().to_string())
+    })?;
     project_open(app, state, path)
 }
 
@@ -254,11 +275,15 @@ fn project_export(state: State<AppState>, out: Option<String>) -> Result<ExportR
             ..Default::default()
         };
 
-        let report =
-            md_emit::export(studio.session.document(), &target, &opts).map_err(|e| e.to_string())?;
+        let report = md_emit::export(studio.session.document(), &target, &opts)
+            .map_err(|e| e.to_string())?;
 
         Ok(ExportResult {
-            files: report.files.iter().map(|p| p.display().to_string()).collect(),
+            files: report
+                .files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
             bytes: report.bytes,
             warnings: report.warnings,
         })
@@ -280,7 +305,10 @@ struct PatchResult {
 fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<PatchResult> {
     let gate = state.gate.clone();
     with_studio(&state, |studio| {
-        let report = studio.session.apply(label, ops).map_err(|e| e.to_string())?;
+        let report = studio
+            .session
+            .apply(label, ops)
+            .map_err(|e| e.to_string())?;
         studio.dirty = true;
 
         // Saved eagerly. The alternative — holding changes in memory until someone
@@ -291,7 +319,10 @@ fn doc_patch(state: State<AppState>, ops: Vec<Op>, label: String) -> Result<Patc
         }
         studio.dirty = false;
 
-        Ok(PatchResult { state: EditorState::of(studio), report })
+        Ok(PatchResult {
+            state: EditorState::of(studio),
+            report,
+        })
     })
 }
 
@@ -316,12 +347,18 @@ fn doc_redo(state: State<AppState>) -> Result<EditorState> {
 }
 
 #[tauri::command]
-fn doc_query(state: State<AppState>, selector: String, page: Option<String>) -> Result<Vec<String>> {
+fn doc_query(
+    state: State<AppState>,
+    selector: String,
+    page: Option<String>,
+) -> Result<Vec<String>> {
     with_studio(&state, |studio| {
         let parsed = Selector::parse(&selector).map_err(|e| e.to_string())?;
         let doc = studio.session.document();
         let ids = match page {
-            Some(key) => parsed.select_in_page(doc, &key).map_err(|e| e.to_string())?,
+            Some(key) => parsed
+                .select_in_page(doc, &key)
+                .map_err(|e| e.to_string())?,
             None => parsed.select(doc),
         };
         Ok(ids.iter().map(|i| i.as_str().to_string()).collect())
@@ -335,7 +372,9 @@ fn doc_query(state: State<AppState>, selector: String, page: Option<String>) -> 
 /// something the user had already drawn.
 #[tauri::command]
 fn doc_new_ids(count: usize) -> Vec<String> {
-    (0..count.clamp(1, 512)).map(|_| NodeId::new().as_str().to_string()).collect()
+    (0..count.clamp(1, 512))
+        .map(|_| NodeId::new().as_str().to_string())
+        .collect()
 }
 
 #[tauri::command]
@@ -351,7 +390,10 @@ fn doc_snapshot(
         let opts = md_mcp::render::SnapshotOptions {
             width,
             time,
-            node: node_id.map(NodeId::parse).transpose().map_err(|e| e.to_string())?,
+            node: node_id
+                .map(NodeId::parse)
+                .transpose()
+                .map_err(|e| e.to_string())?,
             region: None,
         };
         let (png, _, _) = md_mcp::render::snapshot(studio.session.document(), &page, &opts)?;
@@ -396,7 +438,10 @@ fn geom_round_corners(d: String, radius: f64) -> Result<String> {
 
 #[tauri::command]
 fn geom_outline_stroke(d: String, width: f64) -> Result<String> {
-    let style = md_geom::StrokeStyle { width, ..Default::default() };
+    let style = md_geom::StrokeStyle {
+        width,
+        ..Default::default()
+    };
     md_geom::outline_stroke(&d, &style).map_err(|e| e.to_string())
 }
 
@@ -406,9 +451,16 @@ fn geom_fit_freehand(points: Vec<f64>, tolerance: f64) -> Result<String> {
         return Err("points must be a flat [x, y, x, y, …] array".into());
     }
     let pts: Vec<[f64; 2]> = points.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
-    let tolerance = if tolerance > 0.0 { tolerance } else { md_geom::DEFAULT_TOLERANCE };
+    let tolerance = if tolerance > 0.0 {
+        tolerance
+    } else {
+        md_geom::DEFAULT_TOLERANCE
+    };
     let simplified = md_geom::simplify_rdp(&pts, tolerance);
-    Ok(md_geom::to_svg(&md_geom::fit_cubics(&simplified, tolerance * 2.0)))
+    Ok(md_geom::to_svg(&md_geom::fit_cubics(
+        &simplified,
+        tolerance * 2.0,
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +481,10 @@ fn anim_list(state: State<AppState>) -> Result<Vec<PackageInfo>> {
             .registry
             .list()
             .into_iter()
-            .map(|p| PackageInfo { manifest: p.manifest.clone(), origin: p.origin.as_str() })
+            .map(|p| PackageInfo {
+                manifest: p.manifest.clone(),
+                origin: p.origin.as_str(),
+            })
             .collect())
     })
 }
@@ -498,8 +553,7 @@ fn selection_publish(
     viewport: Option<Vec<f64>>,
 ) -> Result<()> {
     with_studio(&state, |studio| {
-        let ids: std::result::Result<Vec<NodeId>, _> =
-            nodes.iter().map(|n| NodeId::parse(n)).collect();
+        let ids: std::result::Result<Vec<NodeId>, _> = nodes.iter().map(NodeId::parse).collect();
 
         let selection = md_doc::Selection {
             page,
@@ -529,8 +583,7 @@ fn request_queue(
     nodes: Vec<String>,
 ) -> Result<String> {
     with_studio(&state, |studio| {
-        let ids: std::result::Result<Vec<NodeId>, _> =
-            nodes.iter().map(|n| NodeId::parse(n)).collect();
+        let ids: std::result::Result<Vec<NodeId>, _> = nodes.iter().map(NodeId::parse).collect();
 
         let created = storage::now_millis();
         let request = Request {

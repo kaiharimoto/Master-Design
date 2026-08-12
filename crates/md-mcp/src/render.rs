@@ -10,7 +10,7 @@
 //! display server and no studio running.
 
 use md_doc::{Document, Page};
-use md_emit::{frame, ExportOptions};
+use md_emit::frame;
 use resvg::tiny_skia;
 use resvg::usvg;
 use std::sync::OnceLock;
@@ -141,14 +141,13 @@ fn resolve_crop(doc: &Document, page: &Page, opts: &SnapshotOptions) -> Result<[
 /// The exporter always emits a full-page viewBox, so cropping means rewriting that one
 /// attribute rather than teaching the exporter about regions it will never need
 /// anywhere else.
+///
+/// `render_svg(.., true)` rather than the HTML: there is no stylesheet here, so the page
+/// colour has to be painted into the artwork, and asking for the SVG directly means the
+/// crop never depends on finding `</svg>` inside a document that also contains scripts.
 fn wrap_for_crop(doc: &Document, page: &Page, crop: [f64; 4]) -> String {
-    let opts = ExportOptions {
-        accessibility_outline: false,
-        ..Default::default()
-    };
-    let (html, _) = md_emit::render_page(doc, page, &opts);
+    let (svg, _) = md_emit::render_svg(doc, page, true);
 
-    let svg = extract_svg(&html).unwrap_or_default();
     let full = format!("viewBox=\"0 0 {} {}\"", num(page.width), num(page.height));
     let cropped = format!(
         "viewBox=\"{} {} {} {}\"",
@@ -176,12 +175,6 @@ fn wrap_for_crop(doc: &Document, page: &Page, crop: [f64; 4]) -> String {
     }
 
     out
-}
-
-fn extract_svg(html: &str) -> Option<String> {
-    let start = html.find("<svg")?;
-    let end = html.rfind("</svg>")? + "</svg>".len();
-    Some(html[start..end].to_string())
 }
 
 fn num(v: f64) -> String {

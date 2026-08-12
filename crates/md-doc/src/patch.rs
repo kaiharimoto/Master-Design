@@ -15,6 +15,7 @@
 //! through [`crate::history::Session`] rather than calling [`apply_ops`] directly.
 
 use crate::anim::Timeline;
+use crate::canonical::ensure_finite;
 use crate::document::{Document, NodeLocation, Page};
 use crate::error::{DocError, Result};
 use crate::id::{NodeId, PageId, TimelineId};
@@ -207,6 +208,11 @@ fn insert_node(
     node: &Node,
     report: &mut PatchReport,
 ) -> Result<Vec<Op>> {
+    // A non-finite coordinate has no JSON spelling and would be written as `null`, so it
+    // is refused here rather than at save time, by which point the edit that produced it
+    // is long out of sight.
+    ensure_finite(node)?;
+
     // Nothing in the incoming subtree may collide with an id already in the document,
     // or later ops addressing that id would be ambiguous.
     for id in node.all_ids() {
@@ -478,6 +484,8 @@ fn parent_and_index(loc: &NodeLocation) -> Result<(NodeLocation, usize)> {
 // ---------------------------------------------------------------------------
 
 fn insert_page(doc: &mut Document, page: &Page, index: Option<usize>) -> Result<Vec<Op>> {
+    ensure_finite(page)?;
+    validate_page_timelines(page)?;
     if doc.page(page.id.as_str()).is_some() || doc.page(&page.slug).is_some() {
         return Err(DocError::InvalidValue {
             path: "page".into(),
@@ -531,6 +539,13 @@ fn update_page(doc: &mut Document, key: &str, path: &str, value: &Value) -> Resu
         reason: e.to_string(),
     })?;
 
+    // Only when the edit could have reached them: a project that already carries a
+    // malformed track predates this check and should still be editable in every other
+    // respect.
+    if path == "timelines" || path.starts_with("timelines.") {
+        validate_page_timelines(&updated)?;
+    }
+
     doc.pages[index] = updated;
     Ok(vec![Op::PageUpdate {
         page: key.to_string(),
@@ -539,7 +554,72 @@ fn update_page(doc: &mut Document, key: &str, path: &str, value: &Value) -> Resu
     }])
 }
 
+/// Refuse keyframes that [`crate::anim::Track::sample`] could not read.
+///
+/// Sampling assumes times are normalized and ascending, and nothing until now checked:
+/// an unsorted or out-of-range track samples to the wrong value in the studio and
+/// exports offsets the browser will not accept, both silently. A track with no keyframes
+/// at all is fine — that is an animation package saying it has nothing to bake yet.
+///
+/// `prefix` places the reported path inside whatever delivered the timeline, which is
+/// not always `timeline.set`.
+fn validate_keyframes(timeline: &Timeline, prefix: &str) -> Result<()> {
+    for (ti, track) in timeline.tracks.iter().enumerate() {
+        let mut previous: Option<f64> = None;
+        for (ki, frame) in track.keyframes.iter().enumerate() {
+            let at = || format!("{prefix}tracks.{ti}.keyframes.{ki}.t");
+            if !frame.t.is_finite() {
+                return Err(DocError::InvalidValue {
+                    path: at(),
+                    reason: format!(
+                        "keyframe time on '{}' is not a finite number",
+                        track.property
+                    ),
+                });
+            }
+            if !(0.0..=1.0).contains(&frame.t) {
+                return Err(DocError::InvalidValue {
+                    path: at(),
+                    reason: format!(
+                        "keyframe time on '{}' is {}; times are normalized to 0..=1",
+                        track.property, frame.t
+                    ),
+                });
+            }
+            if let Some(prev) = previous {
+                if frame.t < prev {
+                    return Err(DocError::InvalidValue {
+                        path: at(),
+                        reason: format!(
+                            "keyframes on '{}' must be in ascending order; {} follows {prev}",
+                            track.property, frame.t
+                        ),
+                    });
+                }
+            }
+            previous = Some(frame.t);
+        }
+    }
+    Ok(())
+}
+
+/// The same check for the timelines a whole page carries.
+///
+/// A timeline reaches a page by three doors, not one: `timeline.set`, a `page.insert`
+/// whose page already has timelines on it, and a `page.update` writing the `timelines`
+/// property wholesale. Guarding only the first leaves the other two as ways to store a
+/// track that [`crate::anim::Track::sample`] cannot read.
+fn validate_page_timelines(page: &Page) -> Result<()> {
+    for (i, timeline) in page.timelines.iter().enumerate() {
+        validate_keyframes(timeline, &format!("timelines.{i}."))?;
+    }
+    Ok(())
+}
+
 fn set_timeline(doc: &mut Document, key: &str, timeline: &Timeline) -> Result<Vec<Op>> {
+    validate_keyframes(timeline, "")?;
+    ensure_finite(timeline)?;
+
     let index = doc
         .page_index(key)
         .ok_or_else(|| DocError::PageNotFound(key.to_string()))?;
@@ -691,4 +771,194 @@ pub fn get_path<'a>(tree: &'a Value, path: &str) -> Option<&'a Value> {
 /// Convenience for `PageId`-typed callers.
 pub fn page_key(id: &PageId) -> String {
     id.as_str().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anim::{Easing, Keyframe, Track, Trigger};
+    use crate::node::RectGeometry;
+
+    fn doc() -> Document {
+        let mut d = Document::new("Site");
+        d.pages[0].root.id = NodeId::from_static("nd_root");
+        d
+    }
+
+    fn frame(t: f64) -> Keyframe {
+        Keyframe {
+            t,
+            value: Value::from(1.0),
+            easing: Easing::Linear,
+        }
+    }
+
+    fn timeline(keyframes: Vec<Keyframe>) -> Timeline {
+        Timeline {
+            id: TimelineId::from_static("tl_a"),
+            name: String::new(),
+            trigger: Trigger::Load { delay: 0.0 },
+            duration: 1.0,
+            enabled: true,
+            reduced_motion: Default::default(),
+            source: None,
+            tracks: vec![Track {
+                target: NodeId::from_static("nd_root"),
+                property: "opacity".into(),
+                keyframes,
+            }],
+        }
+    }
+
+    fn set_keyframes(d: &mut Document, keyframes: Vec<Keyframe>) -> Result<()> {
+        apply_ops(
+            d,
+            &[Op::TimelineSet {
+                page: "index".into(),
+                timeline: Box::new(timeline(keyframes)),
+            }],
+        )
+        .map(|_| ())
+    }
+
+    fn rect(width: f64) -> Node {
+        Node::new(
+            NodeId::from_static("nd_card"),
+            NodeKind::Rect(RectGeometry {
+                width,
+                height: 10.0,
+                corner_radius: [0.0; 4],
+            }),
+        )
+    }
+
+    #[test]
+    fn keyframes_outside_the_unit_interval_are_refused() {
+        let mut d = doc();
+        let err = set_keyframes(&mut d, vec![frame(0.0), frame(1.5)])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("opacity") && err.contains("0..=1"),
+            "got {err}"
+        );
+        assert!(d.pages[0].timelines.is_empty(), "a refused op still landed");
+
+        assert!(set_keyframes(&mut d, vec![frame(-0.1), frame(1.0)]).is_err());
+    }
+
+    #[test]
+    fn keyframes_out_of_order_are_refused() {
+        let mut d = doc();
+        let err = set_keyframes(&mut d, vec![frame(0.0), frame(0.8), frame(0.4)])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("opacity") && err.contains("ascending"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn non_finite_keyframe_times_are_refused() {
+        let mut d = doc();
+        let err = set_keyframes(&mut d, vec![frame(0.0), frame(f64::NAN)])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("opacity") && err.contains("finite"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn well_formed_keyframes_are_accepted() {
+        let mut d = doc();
+        // No keyframes at all is a package that has not baked anything yet, and a
+        // repeated time is how a hard cut is spelled.
+        set_keyframes(&mut d, Vec::new()).unwrap();
+        set_keyframes(&mut d, vec![frame(0.0), frame(0.5), frame(0.5), frame(1.0)]).unwrap();
+        assert_eq!(d.pages[0].timelines.len(), 1);
+    }
+
+    #[test]
+    fn a_page_cannot_arrive_carrying_keyframes_timeline_set_would_refuse() {
+        let mut d = doc();
+        let mut page = Page::new(PageId::from_static("pg_b"), "About", "about", 1440.0, 900.0);
+        page.timelines.push(timeline(vec![frame(0.9), frame(0.1)]));
+        let err = apply_ops(
+            &mut d,
+            &[Op::PageInsert {
+                page: Box::new(page),
+                index: None,
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("ascending"), "got {err}");
+        assert_eq!(d.pages.len(), 1);
+    }
+
+    #[test]
+    fn page_update_cannot_write_keyframes_around_the_check() {
+        let mut d = doc();
+        let smuggled = serde_json::to_value(timeline(vec![frame(0.0), frame(9.0)])).unwrap();
+        let err = apply_ops(
+            &mut d,
+            &[Op::PageUpdate {
+                page: "index".into(),
+                path: "timelines".into(),
+                value: Value::Array(vec![smuggled]),
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("0..=1"), "got {err}");
+        assert!(d.pages[0].timelines.is_empty(), "a refused op still landed");
+    }
+
+    #[test]
+    fn a_non_finite_size_cannot_be_inserted() {
+        let mut d = doc();
+        let err = apply_ops(
+            &mut d,
+            &[Op::NodeInsert {
+                parent: NodeId::from_static("nd_root"),
+                index: None,
+                node: rect(f64::NAN),
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("width"), "got {err}");
+        assert!(d.pages[0].root.children.is_empty());
+
+        apply_ops(
+            &mut d,
+            &[Op::NodeInsert {
+                parent: NodeId::from_static("nd_root"),
+                index: None,
+                node: rect(10.0),
+            }],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_non_finite_page_size_cannot_be_inserted() {
+        let mut d = doc();
+        let mut page = Page::new(PageId::from_static("pg_b"), "About", "about", 1440.0, 900.0);
+        page.width = f64::INFINITY;
+        let err = apply_ops(
+            &mut d,
+            &[Op::PageInsert {
+                page: Box::new(page),
+                index: None,
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("width"), "got {err}");
+        assert_eq!(d.pages.len(), 1);
+    }
 }

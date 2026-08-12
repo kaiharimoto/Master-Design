@@ -24,8 +24,10 @@ use crate::document::{Document, Page, ProjectMeta, Tokens};
 use crate::error::{DocError, Result};
 use crate::id::{NodeId, PageId};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const PROJECT_FILE: &str = "project.json";
 pub const TOKENS_FILE: &str = "tokens.json";
@@ -95,8 +97,7 @@ pub fn save_project(dir: &Path, doc: &Document) -> Result<()> {
     let mut refs = Vec::with_capacity(doc.pages.len());
     let mut written: Vec<String> = Vec::new();
 
-    for page in &doc.pages {
-        let file = format!("{}.json", sanitize(&page.slug));
+    for (page, file) in doc.pages.iter().zip(page_files(&doc.pages)) {
         refs.push(PageRef {
             id: page.id.clone(),
             slug: page.slug.clone(),
@@ -128,6 +129,47 @@ pub fn save_project(dir: &Path, doc: &Document) -> Result<()> {
     prune_stale_pages(&dir.join(PAGES_DIR), &written)?;
 
     Ok(())
+}
+
+/// Choose a filename for every page, in document order.
+///
+/// [`sanitize`] is lossy by necessity: `about/us` and `about-us` both reduce to
+/// `about-us`, and a slug with no ASCII in it reduces to nothing at all. Two pages
+/// landing on one file means the second silently overwrites the first and the next load
+/// reads that one file twice — a project that saved "successfully" and can no longer be
+/// opened. So a base name more than one page wants is qualified with the page id, which
+/// is unique and does not move.
+///
+/// Names are compared case-folded, because `About.json` and `about.json` are one file on
+/// Windows and macOS and the failure there is the same one.
+fn page_files(pages: &[Page]) -> Vec<String> {
+    let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
+    for page in pages {
+        *wanted
+            .entry(sanitize(&page.slug).to_ascii_lowercase())
+            .or_default() += 1;
+    }
+
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    let mut out = Vec::with_capacity(pages.len());
+    for page in pages {
+        let base = sanitize(&page.slug);
+        // Qualifying every page that shares a base name, rather than only the later
+        // ones, keeps filenames still when pages are reordered.
+        let mut name = if wanted[&base.to_ascii_lowercase()] > 1 {
+            format!("{base}-{}.json", sanitize(page.id.as_str()))
+        } else {
+            format!("{base}.json")
+        };
+        // A qualified name could still land on a slug someone wrote by hand.
+        let mut n = 2;
+        while !taken.insert(name.to_ascii_lowercase()) {
+            name = format!("{base}-{}-{n}.json", sanitize(page.id.as_str()));
+            n += 1;
+        }
+        out.push(name);
+    }
+    out
 }
 
 fn prune_stale_pages(pages_dir: &Path, keep: &[String]) -> Result<()> {
@@ -262,10 +304,31 @@ fn write_atomic(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("tmp");
+    let tmp = scratch_path(path);
     fs::write(&tmp, contents)?;
-    fs::rename(&tmp, path)?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
+}
+
+/// A scratch path beside `path` that no other writer will pick.
+///
+/// Two editors at once is the ordinary case here — the MCP server autosaving while the
+/// studio autosaves — and a fixed `.tmp` name lets one process rename the other's
+/// half-written file into place, which is exactly the corruption the rename was there to
+/// prevent. A process id tells the two apart and a counter tells concurrent saves within
+/// one of them apart. The file stays in the target's directory, because a rename is only
+/// atomic within a filesystem.
+fn scratch_path(path: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
 }
 
 /// Reduce a slug to something safe to use as a filename on every platform we target.
@@ -454,6 +517,101 @@ mod tests {
         save_project(&dir, &sample()).unwrap();
         let found = find_project_root(&dir.join(PAGES_DIR)).unwrap();
         assert_eq!(found, dir);
+    }
+
+    #[test]
+    fn pages_whose_slugs_sanitize_alike_keep_their_own_files() {
+        let dir = tmpdir("collision");
+        let mut doc = sample();
+        for (id, slug) in [
+            ("pg_a", "about/us"),
+            ("pg_b", "about-us"),
+            ("pg_c", "日本語"),
+            ("pg_d", "中文"),
+        ] {
+            doc.pages.push(Page::new(
+                PageId::from_static(id),
+                "Page",
+                slug,
+                1440.0,
+                900.0,
+            ));
+        }
+
+        save_project(&dir, &doc).unwrap();
+        let files: Vec<String> = fs::read_dir(dir.join(PAGES_DIR))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            files.len(),
+            doc.pages.len(),
+            "two pages shared one file: {files:?}"
+        );
+        assert_eq!(load_project(&dir).unwrap(), doc);
+    }
+
+    #[test]
+    fn page_filenames_differ_by_more_than_case() {
+        // Windows and macOS treat `About.json` and `about.json` as one file, so slugs
+        // that differ only in case collide there exactly as `about/us` and `about-us`
+        // do everywhere.
+        let pages: Vec<Page> = [("pg_a", "About"), ("pg_b", "about")]
+            .into_iter()
+            .map(|(id, slug)| Page::new(PageId::from_static(id), "Page", slug, 1440.0, 900.0))
+            .collect();
+
+        let files = page_files(&pages);
+        let folded: BTreeSet<String> = files.iter().map(|f| f.to_ascii_lowercase()).collect();
+        assert_eq!(
+            folded.len(),
+            files.len(),
+            "one file on a case-insensitive filesystem: {files:?}"
+        );
+    }
+
+    #[test]
+    fn concurrent_writers_never_publish_a_half_written_file() {
+        let dir = tmpdir("atomic");
+        let path = dir.join("page.json");
+        // Big enough that a scratch file shared between writers is caught mid-write.
+        let a = format!("{{\"a\": \"{}\"}}\n", "a".repeat(400_000));
+        let b = format!("{{\"b\": \"{}\"}}\n", "b".repeat(400_000));
+
+        std::thread::scope(|s| {
+            for body in [&a, &b] {
+                let path = &path;
+                s.spawn(move || {
+                    for _ in 0..30 {
+                        write_atomic(path, body).unwrap();
+                    }
+                });
+            }
+            s.spawn(|| {
+                for _ in 0..3000 {
+                    if let Ok(seen) = fs::read_to_string(&path) {
+                        assert!(
+                            seen == a || seen == b,
+                            "read a file of {} bytes that was neither version",
+                            seen.len()
+                        );
+                    }
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn scratch_files_are_unique_and_stay_beside_their_target() {
+        let target = Path::new("/projects/site.mdproj/pages/index.json");
+        let (a, b) = (scratch_path(target), scratch_path(target));
+        assert_ne!(a, b);
+        assert_eq!(
+            a.parent(),
+            target.parent(),
+            "rename would cross a filesystem"
+        );
     }
 
     #[test]
