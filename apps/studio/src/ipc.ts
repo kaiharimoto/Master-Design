@@ -201,9 +201,66 @@ export const updates = {
 // ---------------------------------------------------------------------------
 
 export const preview = {
-  /** Base64 PNG of a page, optionally at a moment in its animation. */
-  snapshot: (page: string, time: number | null, width: number, nodeId?: string) =>
-    call<string>("doc_snapshot", { page, time, width, nodeId: nodeId ?? null }),
+  /**
+   * Base64 PNG of a page, optionally at a moment in its animation.
+   *
+   * `atWidth` solves constraints and auto-layout at a document width before rendering,
+   * which is how a preview shows the phone layout rather than the desktop design shrunk.
+   */
+  snapshot: (
+    page: string,
+    time: number | null,
+    width: number,
+    nodeId?: string,
+    atWidth?: number,
+  ) =>
+    call<string>("doc_snapshot", {
+      page,
+      time,
+      width,
+      nodeId: nodeId ?? null,
+      atWidth: atWidth ?? null,
+    }),
 };
+
+// ---------------------------------------------------------------------------
+// Images
+// ---------------------------------------------------------------------------
+
+export interface ImportedAsset {
+  name: string;
+  originalName: string;
+  width: number;
+  height: number;
+  /** Absolute path on disk; pass it through `assetUrl` before putting it in an href. */
+  path: string;
+  written: boolean;
+}
+
+export const assets = {
+  /** Copy files into the project's assets folder, content-addressed and deduplicated. */
+  import: (paths: string[]) =>
+    call<{ imported: ImportedAsset[]; problems: string[] }>("asset_import", { paths }),
+
+  /** Where a named asset lives on disk. */
+  path: (name: string) => call<string>("asset_path", { name }),
+
+  /** Everything in the project's assets folder, as `[name, path]`. */
+  list: () => call<[string, string][]>("asset_list"),
+};
+
+/**
+ * Turn a path on disk into a URL the webview may load.
+ *
+ * The canvas cannot use a relative `assets/…` href: it is served from a dev server or
+ * from the app bundle, and neither of those is the project directory. Tauri's asset
+ * protocol exists for exactly this, and the app's content security policy already allows
+ * `asset:` for images.
+ */
+export async function assetUrl(path: string): Promise<string> {
+  if (!hasBackend()) return path;
+  const { convertFileSrc } = await import("@tauri-apps/api/core");
+  return convertFileSrc(path);
+}
 
 export type { Document, EditorState };

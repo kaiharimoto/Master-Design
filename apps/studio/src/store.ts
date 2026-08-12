@@ -291,6 +291,67 @@ export const actions = {
     return result;
   },
 
+  /**
+   * Bring image files into the project and place them on the current page.
+   *
+   * `at` is in *client* coordinates — where the pointer let go — so the image lands
+   * under the cursor rather than somewhere arbitrary. Without a position it goes to the
+   * middle of what is on screen, which is what a paste should do.
+   *
+   * Everything lands as one undoable step: dropping four images and needing four Ctrl+Zs
+   * to take them back is not what anyone means by "undo that".
+   */
+  async placeImages(paths: string[], at?: { x: number; y: number }) {
+    if (paths.length === 0) return;
+
+    const result = await run(() => ipc.assets.import(paths));
+    if (!result) return;
+
+    for (const problem of result.problems) {
+      setState("error", problem);
+    }
+    if (result.imported.length === 0) return;
+
+    const p = page();
+    if (!p) return;
+
+    const canvas = window.document.querySelector(".shell__canvas");
+    const rect = canvas?.getBoundingClientRect();
+    const local = at && rect
+      ? { x: at.x - rect.left, y: at.y - rect.top }
+      : { x: (rect?.width ?? 0) / 2, y: (rect?.height ?? 0) / 2 };
+
+    const ids = await run(() => ipc.edit.newIds(result.imported.length));
+    if (!ids) return;
+
+    const ops: Op[] = result.imported.map((asset, i) => {
+      // Centre the first image on the drop point and cascade the rest, so a multi-image
+      // drop does not land as one pile with only the last one visible.
+      const [x, y] = screenToDoc(local.x + i * 24, local.y + i * 24);
+      return {
+        op: "node.insert",
+        parent: p.root.id,
+        node: {
+          id: ids[i],
+          type: "image",
+          name: asset.originalName,
+          asset: asset.name,
+          width: asset.width,
+          height: asset.height,
+          fit: "cover",
+          transform: [1, 0, 0, 1, x - asset.width / 2, y - asset.height / 2],
+        },
+      } as Op;
+    });
+
+    const label =
+      result.imported.length === 1
+        ? `Add ${result.imported[0].originalName}`
+        : `Add ${result.imported.length} images`;
+    await actions.patch(ops, label);
+    actions.select(ids);
+  },
+
   /** Pick up changes made outside the app — most often by an AI over MCP. */
   async reload() {
     const editor = await run(() => ipc.project.reload());

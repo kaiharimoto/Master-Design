@@ -12,10 +12,64 @@
  * node's fill updates one attribute, with no diff over a tree of thousands.
  */
 
-import { For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
+import * as ipc from "../ipc";
 import { fmt, toSvg } from "../math";
 import { state } from "../store";
 import type { Effect, GradientStop, Node, Paint, Stroke } from "../types";
+
+/**
+ * The URL for an asset, resolved through the backend.
+ *
+ * The exporter can write `href="assets/hero.png"` because the page sits next to its
+ * assets folder. The canvas cannot: it is served from a dev server or from the app
+ * bundle, and neither of those is the project directory. So the backend is asked where
+ * the file is, and Tauri's asset protocol turns that into a URL the webview may load.
+ *
+ * A resource rather than a signal, because the answer is asynchronous and the image
+ * should appear when it arrives rather than the whole node waiting on it.
+ */
+function useAssetUrl(name: () => string | undefined) {
+  const [url] = createResource(name, async (asset) => {
+    if (!asset) return undefined;
+    // A name the backend refuses — one that would climb out of the project — resolves to
+    // nothing, and the element renders empty rather than throwing away the whole canvas.
+    return ipc.assets
+      .path(asset)
+      .then(ipc.assetUrl)
+      .catch(() => undefined);
+  });
+  return url;
+}
+
+/** An `<image>` whose href comes from the project's assets folder. */
+function AssetImage(props: {
+  asset: string;
+  width?: number;
+  height?: number;
+  fit?: string;
+  objectBoundingBox?: boolean;
+}) {
+  const url = useAssetUrl(() => props.asset);
+  return (
+    <Show when={url()}>
+      {(href) => (
+        <image
+          href={href()}
+          width={props.objectBoundingBox ? 1 : props.width}
+          height={props.objectBoundingBox ? 1 : props.height}
+          preserveAspectRatio={
+            props.fit === "contain"
+              ? "xMidYMid meet"
+              : props.fit === "fill"
+                ? "none"
+                : "xMidYMid slice"
+          }
+        />
+      )}
+    </Show>
+  );
+}
 
 /** Stable, collision-free id for a gradient or filter belonging to one node. */
 function defId(nodeId: string, kind: string, i: number) {
@@ -104,12 +158,7 @@ function PaintDefs(props: { node: Node }) {
                 width={1}
                 height={1}
               >
-                <image
-                  href={`assets/${paint.asset}`}
-                  width={1}
-                  height={1}
-                  preserveAspectRatio="xMidYMid slice"
-                />
+                <AssetImage asset={paint.asset} objectBoundingBox />
               </pattern>
             );
         }
@@ -372,17 +421,11 @@ export function SceneNode(props: { node: Node }) {
 
           <Show when={node().type === "image" && node().asset}>
             {(asset) => (
-              <image
-                href={`assets/${asset()}`}
+              <AssetImage
+                asset={asset()}
                 width={node().width}
                 height={node().height}
-                preserveAspectRatio={
-                  node().fit === "contain"
-                    ? "xMidYMid meet"
-                    : node().fit === "fill"
-                      ? "none"
-                      : "xMidYMid slice"
-                }
+                fit={node().fit}
               />
             )}
           </Show>

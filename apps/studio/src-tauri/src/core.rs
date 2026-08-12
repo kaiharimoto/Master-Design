@@ -290,12 +290,16 @@ impl Studio {
     }
 
     /// Render a page to a base64 PNG.
+    ///
+    /// `at_width` solves constraints and auto-layout at a document width first, which is
+    /// how a preview shows the phone layout rather than the desktop design shrunk down.
     pub fn snapshot(
         &self,
         page: &str,
         time: Option<f64>,
         width: u32,
         node_id: Option<&str>,
+        at_width: Option<f64>,
     ) -> Result<String> {
         use base64::Engine;
 
@@ -307,6 +311,8 @@ impl Studio {
                 .transpose()
                 .map_err(|e| e.to_string())?,
             region: None,
+            at_width,
+            assets_from: Some(self.project_dir.clone()),
         };
         let (png, _, _) = md_mcp::render::snapshot(self.session.document(), page, &opts)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(png))
@@ -403,6 +409,90 @@ impl Studio {
         }
 
         md_anim::rebake(doc, &self.registry, &updated, Some(page)).map_err(|e| e.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+
+/// An imported image, as the interface needs it: where it went, what to call the layer,
+/// and how big to make it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedAsset {
+    pub name: String,
+    pub original_name: String,
+    pub width: f64,
+    pub height: f64,
+    /// Absolute path, which the webview turns into an `asset://` URL it is allowed to load.
+    pub path: String,
+    /// False when the identical image was already in the project.
+    pub written: bool,
+}
+
+/// The largest an imported image is placed at, in document units.
+///
+/// An 8000-pixel photograph dropped onto a 1440-wide page should not arrive six times
+/// wider than the artboard, and a 16-pixel icon should not arrive too small to grab.
+const PLACEMENT_MAX: f64 = 600.0;
+
+impl Studio {
+    /// Copy images into the project.
+    ///
+    /// Errors are collected per file rather than aborting: dropping twelve images and
+    /// losing all of them because the eleventh was a PDF would be a poor trade.
+    pub fn import_assets(&self, sources: &[String]) -> (Vec<ImportedAsset>, Vec<String>) {
+        let mut imported = Vec::new();
+        let mut problems = Vec::new();
+
+        for source in sources {
+            match md_doc::assets::import(&self.project_dir, Path::new(source)) {
+                Ok(asset) => {
+                    let (width, height) = asset.placement_size(PLACEMENT_MAX);
+                    let path = self
+                        .project_dir
+                        .join(md_doc::assets::ASSETS_DIR)
+                        .join(&asset.name);
+                    imported.push(ImportedAsset {
+                        name: asset.name,
+                        original_name: asset.original_name,
+                        width,
+                        height,
+                        path: path.display().to_string(),
+                        written: asset.written,
+                    });
+                }
+                Err(e) => problems.push(e.to_string()),
+            }
+        }
+
+        (imported, problems)
+    }
+
+    /// Every asset in the project, with the path the webview can load each from.
+    pub fn assets(&self) -> Vec<(String, String)> {
+        md_doc::assets::list(&self.project_dir)
+            .into_iter()
+            .map(|name| {
+                let path = self
+                    .project_dir
+                    .join(md_doc::assets::ASSETS_DIR)
+                    .join(&name);
+                (name, path.display().to_string())
+            })
+            .collect()
+    }
+
+    /// Where a named asset lives, for the canvas to display it.
+    ///
+    /// Goes through `md_doc::assets::path_of`, which refuses a name that would climb out
+    /// of the project — a node's `asset` field is ordinary text in a document a model may
+    /// have written.
+    pub fn asset_path(&self, name: &str) -> Result<String> {
+        md_doc::assets::path_of(&self.project_dir, name)
+            .map(|p| p.display().to_string())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -665,7 +755,7 @@ mod tests {
     #[test]
     fn a_snapshot_is_a_real_png() {
         let (studio, _) = project("snapshot");
-        let b64 = studio.snapshot("index", None, 320, None).unwrap();
+        let b64 = studio.snapshot("index", None, 320, None, None).unwrap();
         use base64::Engine;
         let png = base64::engine::general_purpose::STANDARD
             .decode(b64)
@@ -677,7 +767,7 @@ mod tests {
     fn a_snapshot_of_a_node_that_is_not_there_is_an_error() {
         let (studio, _) = project("snapshot-missing");
         assert!(studio
-            .snapshot("index", None, 320, Some("nd_ghost"))
+            .snapshot("index", None, 320, Some("nd_ghost"), None)
             .is_err());
     }
 
@@ -763,6 +853,74 @@ mod tests {
         // which is the normal case in a development checkout run from the wrong folder.
         let (studio, _) = project("no-registry");
         assert!(studio.animations().is_empty());
+    }
+
+    /// A real 2×3 PNG header, so the size parser has something true to read.
+    fn png_2x3() -> Vec<u8> {
+        let mut out = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        out.extend_from_slice(&13u32.to_be_bytes());
+        out.extend_from_slice(b"IHDR");
+        out.extend_from_slice(&2u32.to_be_bytes());
+        out.extend_from_slice(&3u32.to_be_bytes());
+        out.extend_from_slice(&[8, 6, 0, 0, 0, 0, 0, 0, 0]);
+        out
+    }
+
+    #[test]
+    fn importing_an_image_puts_it_in_the_project_and_sizes_it() {
+        let (studio, _) = project("import");
+        let source = studio.project_dir().join("dropped.png");
+        std::fs::write(&source, png_2x3()).unwrap();
+
+        let (imported, problems) = studio.import_assets(&[source.display().to_string()]);
+
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].original_name, "dropped.png");
+        // 2×3 is far under the placement ceiling, so it keeps its own size.
+        assert_eq!((imported[0].width, imported[0].height), (2.0, 3.0));
+        assert!(std::path::Path::new(&imported[0].path).is_file());
+    }
+
+    #[test]
+    fn one_bad_file_does_not_lose_the_good_ones() {
+        // Dropping twelve images and getting none because the eleventh was a PDF would
+        // be a poor trade.
+        let (studio, _) = project("import-mixed");
+        let good = studio.project_dir().join("fine.png");
+        std::fs::write(&good, png_2x3()).unwrap();
+
+        let (imported, problems) = studio.import_assets(&[
+            good.display().to_string(),
+            studio
+                .project_dir()
+                .join("not-there.png")
+                .display()
+                .to_string(),
+        ]);
+
+        assert_eq!(imported.len(), 1);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("not-there.png"), "{problems:?}");
+    }
+
+    #[test]
+    fn an_asset_name_that_climbs_out_of_the_project_is_refused() {
+        let (studio, _) = project("asset-escape");
+        assert!(studio.asset_path("../../etc/passwd").is_err());
+        assert!(studio.asset_path("fine.png").is_ok());
+    }
+
+    #[test]
+    fn imported_assets_can_be_listed_back() {
+        let (studio, _) = project("asset-list");
+        let source = studio.project_dir().join("one.png");
+        std::fs::write(&source, png_2x3()).unwrap();
+        studio.import_assets(&[source.display().to_string()]);
+
+        let listed = studio.assets();
+        assert_eq!(listed.len(), 1);
+        assert!(std::path::Path::new(&listed[0].1).is_file());
     }
 
     #[test]

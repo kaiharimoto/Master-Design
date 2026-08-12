@@ -98,6 +98,17 @@ fn open_into_state(
 ) -> Result<EditorState> {
     let mut studio = Studio::open(path, standard_animations(app).as_deref())?;
 
+    // Let the webview read this project's images, and only this project's.
+    //
+    // `tauri.conf.json` enables the asset protocol with an empty scope, so out of the box
+    // the webview can read nothing. Widening it here, per open project, means a design
+    // can show its own photographs without the studio handing a page in a webview the
+    // ability to read the user's home directory.
+    let assets = studio.project_dir().join(md_doc::assets::ASSETS_DIR);
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&assets, true) {
+        eprintln!("could not allow reading {}: {e}", assets.display());
+    }
+
     // Attached before the state is swapped in, so there is no window in which the project
     // is open but unwatched.
     match watch::watch_project(
@@ -238,10 +249,45 @@ fn doc_snapshot(
     time: Option<f64>,
     width: u32,
     node_id: Option<String>,
+    at_width: Option<f64>,
 ) -> Result<String> {
     with_studio(&state, |studio| {
-        studio.snapshot(&page, time, width, node_id.as_deref())
+        studio.snapshot(&page, time, width, node_id.as_deref(), at_width)
     })
+}
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportResult {
+    imported: Vec<crate::core::ImportedAsset>,
+    problems: Vec<String>,
+}
+
+#[tauri::command]
+fn asset_import(state: State<AppState>, paths: Vec<String>) -> Result<ImportResult> {
+    with_studio(&state, |studio| {
+        let (imported, problems) = studio.import_assets(&paths);
+        Ok(ImportResult { imported, problems })
+    })
+}
+
+/// Where an asset lives on disk, so the webview can build a URL it is allowed to load.
+///
+/// The canvas cannot use a relative `assets/…` href: it is served from a dev server or
+/// from the bundle, neither of which is the project directory. Tauri's asset protocol
+/// needs a real path, and this is the only thing that knows one.
+#[tauri::command]
+fn asset_path(state: State<AppState>, name: String) -> Result<String> {
+    with_studio(&state, |studio| studio.asset_path(&name))
+}
+
+#[tauri::command]
+fn asset_list(state: State<AppState>) -> Result<Vec<(String, String)>> {
+    with_studio(&state, |studio| Ok(studio.assets()))
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +468,9 @@ pub fn run() {
             doc_query,
             doc_new_ids,
             doc_snapshot,
+            asset_import,
+            asset_path,
+            asset_list,
             geom_rect_path,
             geom_ellipse_path,
             geom_polygon_path,

@@ -114,6 +114,10 @@ enum Command {
     #[command(subcommand)]
     Anim(AnimCommand),
 
+    /// Bring images into a project.
+    #[command(subcommand)]
+    Asset(AssetCommand),
+
     /// Queue a note for an AI session to pick up later.
     Request {
         project: PathBuf,
@@ -132,6 +136,23 @@ enum Command {
         #[arg(long)]
         read_only: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AssetCommand {
+    /// Copy image files into the project's assets folder.
+    ///
+    /// Content-addressed, so importing the same picture twice writes one file, and a
+    /// file's name never changes once written — which is what lets a project with images
+    /// in it travel through git without binary merge conflicts.
+    Import {
+        project: PathBuf,
+        /// Files to bring in.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// List what is already in the project.
+    List { project: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -216,6 +237,10 @@ fn run() -> Result<()> {
             width,
             at_width,
         } => cmd_snapshot(&project, out, page, node, time, width, at_width),
+        Command::Asset(AssetCommand::Import { project, files }) => {
+            cmd_asset_import(&project, &files)
+        }
+        Command::Asset(AssetCommand::List { project }) => cmd_asset_list(&project),
         Command::Anim(AnimCommand::List { query }) => cmd_anim_list(std_animations, query),
         Command::Anim(AnimCommand::Apply {
             project,
@@ -391,6 +416,7 @@ fn cmd_snapshot(
     width: u32,
     at_width: Option<f64>,
 ) -> Result<()> {
+    let root = paths::project_root(project)?;
     let doc = load(project)?;
     let page_key = page.unwrap_or_else(|| {
         doc.pages
@@ -405,12 +431,62 @@ fn cmd_snapshot(
         node: node.map(NodeId::parse).transpose()?,
         region: None,
         at_width,
+        assets_from: Some(root.clone()),
     };
 
     let (png, w, h) = md_mcp::render::snapshot(&doc, &page_key, &opts).map_err(|e| anyhow!(e))?;
     std::fs::write(&out, &png).with_context(|| format!("writing {}", out.display()))?;
 
     println!("Wrote {} ({w}×{h})", out.display());
+    Ok(())
+}
+
+fn cmd_asset_import(project: &std::path::Path, files: &[PathBuf]) -> Result<()> {
+    let root = paths::project_root(project)?;
+
+    // Reported per file rather than aborting on the first failure: importing twelve
+    // images and losing all of them because the eleventh was a PDF is a poor trade.
+    let mut failures = 0;
+    for file in files {
+        match md_doc::assets::import(&root, file) {
+            Ok(asset) => {
+                let size = match (asset.width, asset.height) {
+                    (Some(w), Some(h)) => format!("{w}×{h}"),
+                    _ => "no intrinsic size".to_string(),
+                };
+                let state = if asset.written {
+                    "imported"
+                } else {
+                    "already present"
+                };
+                println!("{:<24} {size:<14} {state}", asset.name);
+            }
+            Err(e) => {
+                eprintln!("{}: {e}", file.display());
+                failures += 1;
+            }
+        }
+    }
+
+    if failures > 0 {
+        return Err(anyhow!("{failures} file(s) could not be imported"));
+    }
+    Ok(())
+}
+
+fn cmd_asset_list(project: &std::path::Path) -> Result<()> {
+    let root = paths::project_root(project)?;
+    let names = md_doc::assets::list(&root);
+    if names.is_empty() {
+        println!(
+            "No assets. Add one with: md asset import {} <file>",
+            project.display()
+        );
+        return Ok(());
+    }
+    for name in names {
+        println!("{name}");
+    }
     Ok(())
 }
 

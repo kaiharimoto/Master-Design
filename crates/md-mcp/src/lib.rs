@@ -368,6 +368,7 @@ impl Server {
             node,
             region,
             at_width: args.get("atWidth").and_then(|v| v.as_f64()),
+            assets_from: Some(self.project_dir.clone()),
         };
 
         match render::snapshot(doc, &page, &opts) {

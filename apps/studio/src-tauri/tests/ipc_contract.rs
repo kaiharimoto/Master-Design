@@ -43,6 +43,9 @@ const NOT_YET_CALLED: &[&str] = &[
     "doc_query",
     // Waiting on preview mode and the animation picker's thumbnails.
     "doc_snapshot",
+    // Waiting on an assets panel. Images arrive by being dropped, which goes through
+    // `asset_import`; listing what is already in the project needs somewhere to show it.
+    "asset_list",
 ];
 
 fn studio_root() -> PathBuf {
@@ -306,7 +309,7 @@ fn the_parsers_understand_the_files_they_are_given() {
     );
     assert_eq!(
         commands["doc_snapshot"].args,
-        ["nodeId", "page", "time", "width"]
+        ["atWidth", "nodeId", "page", "time", "width"]
             .iter()
             .map(|s| s.to_string())
             .collect::<BTreeSet<_>>(),

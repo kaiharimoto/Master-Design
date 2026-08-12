@@ -31,6 +31,12 @@ pub struct SnapshotOptions {
     /// `None` renders the design as authored, which is what "show me what I am editing"
     /// means.
     pub at_width: Option<f64>,
+    /// The project directory, so images can be drawn.
+    ///
+    /// Without it a design with photographs in it rasterizes as white boxes — which is
+    /// worse than useless for a model checking its own work, because the picture *looks*
+    /// like a finished render.
+    pub assets_from: Option<std::path::PathBuf>,
 }
 
 impl Default for SnapshotOptions {
@@ -43,6 +49,7 @@ impl Default for SnapshotOptions {
             node: None,
             region: None,
             at_width: None,
+            assets_from: None,
         }
     }
 }
@@ -93,14 +100,19 @@ pub fn snapshot(
     };
 
     let crop = resolve_crop(source, page, opts)?;
-    let svg = wrap_for_crop(source, page, crop);
+    let mut svg = wrap_for_crop(source, page, crop);
+    if let Some(project) = &opts.assets_from {
+        svg = inline_assets(&svg, project);
+    }
 
     let mut options = usvg::Options {
         fontdb: std::sync::Arc::new(fonts().clone()),
         ..Default::default()
     };
-    // Resolve `assets/…` references relative to nothing: a snapshot should not read
-    // arbitrary files off disk because a document asked it to.
+    // Left unset on purpose. Images are inlined above, by code that checks each name
+    // against the project's assets folder; handing resvg a base directory instead would
+    // let a document containing `assets/../../.ssh/id_rsa` decide what gets read, and a
+    // document may have been written by a model or edited by hand.
     options.resources_dir = None;
 
     let tree = usvg::Tree::from_str(&svg, &options)
@@ -195,6 +207,63 @@ fn wrap_for_crop(doc: &Document, page: &Page, crop: [f64; 4]) -> String {
     }
 
     out
+}
+
+/// Replace `href="assets/NAME"` with the file's bytes as a data URI.
+///
+/// Inlining rather than pointing resvg at a directory, so that the decision about which
+/// files may be read stays in code that can refuse: `md_doc::assets::path_of` rejects any
+/// name that would climb out of the assets folder, and a name it rejects is simply left
+/// as it was — the element renders empty rather than the whole snapshot failing.
+fn inline_assets(svg: &str, project: &std::path::Path) -> String {
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    const NEEDLE: &str = "href=\"assets/";
+
+    while let Some(start) = rest.find(NEEDLE) {
+        let after = start + NEEDLE.len();
+        let Some(end) = rest[after..].find('"') else {
+            break;
+        };
+        let name = &rest[after..after + end];
+
+        out.push_str(&rest[..start]);
+        match read_asset(project, name) {
+            Some(uri) => {
+                out.push_str("href=\"");
+                out.push_str(&uri);
+                out.push('"');
+            }
+            None => {
+                // Keep the original reference. It will not resolve, which is exactly what
+                // should happen to an asset that is missing or out of bounds.
+                out.push_str(&rest[start..after + end + 1]);
+            }
+        }
+        rest = &rest[after + end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn read_asset(project: &std::path::Path, name: &str) -> Option<String> {
+    use base64::Engine;
+
+    let path = md_doc::assets::path_of(project, name).ok()?;
+    let bytes = std::fs::read(&path).ok()?;
+    let mime = match name.rsplit('.').next()?.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    };
+    Some(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    ))
 }
 
 fn num(v: f64) -> String {
@@ -385,6 +454,144 @@ mod tests {
     #[test]
     fn an_unknown_page_is_an_error() {
         assert!(snapshot(&doc(), "nope", &SnapshotOptions::default()).is_err());
+    }
+
+    /// A real 2×2 PNG: solid red, so its pixels are unmistakable in a render.
+    fn red_png() -> Vec<u8> {
+        // Built rather than embedded so the test carries its own explanation.
+        fn chunk(kind: &[u8], data: &[u8]) -> Vec<u8> {
+            let mut out = (data.len() as u32).to_be_bytes().to_vec();
+            let body: Vec<u8> = kind.iter().chain(data).copied().collect();
+            out.extend(&body);
+            out.extend(crc32(&body).to_be_bytes());
+            out
+        }
+        fn crc32(data: &[u8]) -> u32 {
+            let mut crc = 0xffff_ffffu32;
+            for byte in data {
+                crc ^= *byte as u32;
+                for _ in 0..8 {
+                    crc = if crc & 1 != 0 {
+                        (crc >> 1) ^ 0xedb8_8320
+                    } else {
+                        crc >> 1
+                    };
+                }
+            }
+            !crc
+        }
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        let mut ihdr = 2u32.to_be_bytes().to_vec();
+        ihdr.extend(2u32.to_be_bytes());
+        ihdr.extend([8, 2, 0, 0, 0]); // 8-bit RGB
+        png.extend(chunk(b"IHDR", &ihdr));
+
+        // Two rows, each a filter byte then two red pixels, deflated with stored blocks.
+        let raw: Vec<u8> = vec![0, 255, 0, 0, 255, 0, 0, 0, 255, 0, 0, 255, 0, 0];
+        let mut z = vec![0x78, 0x01];
+        z.push(0x01);
+        z.extend((raw.len() as u16).to_le_bytes());
+        z.extend((!(raw.len() as u16)).to_le_bytes());
+        z.extend(&raw);
+        let mut adler_a: u32 = 1;
+        let mut adler_b: u32 = 0;
+        for byte in &raw {
+            adler_a = (adler_a + *byte as u32) % 65521;
+            adler_b = (adler_b + adler_a) % 65521;
+        }
+        z.extend(((adler_b << 16) | adler_a).to_be_bytes());
+        png.extend(chunk(b"IDAT", &z));
+        png.extend(chunk(b"IEND", b""));
+        png
+    }
+
+    #[test]
+    fn an_image_reaches_the_pixels_when_the_project_is_known() {
+        // Without this a model checking its own work sees white boxes where the
+        // photographs are, which is worse than useless: it looks like a finished render.
+        use md_doc::node::ImageGeometry;
+
+        let dir = std::env::temp_dir()
+            .join("md-mcp-assets")
+            .join(format!("render-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let asset = md_doc::assets::import_bytes(&dir, "red.png", &red_png()).unwrap();
+
+        let mut d = doc();
+        d.pages[0].root.children.push(Node::new(
+            NodeId::from_static("nd_img"),
+            NodeKind::Image(ImageGeometry {
+                asset: asset.name.clone(),
+                width: 400.0,
+                height: 400.0,
+                fit: Default::default(),
+            }),
+        ));
+
+        let without = snapshot(&d, "index", &SnapshotOptions::default())
+            .unwrap()
+            .0;
+        let with = snapshot(
+            &d,
+            "index",
+            &SnapshotOptions {
+                assets_from: Some(dir.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .0;
+
+        assert_ne!(
+            without, with,
+            "naming the project changed nothing, so the image was not drawn"
+        );
+    }
+
+    #[test]
+    fn an_asset_reference_that_climbs_out_of_the_project_is_not_followed() {
+        let dir = std::env::temp_dir()
+            .join("md-mcp-assets")
+            .join(format!("escape-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret = dir.join("secret.png");
+        std::fs::write(&secret, red_png()).unwrap();
+
+        let svg = "<svg><image href=\"assets/../secret.png\"/></svg>";
+        let out = inline_assets(svg, &dir);
+        assert_eq!(out, svg, "a traversing reference was resolved: {out}");
+        assert!(!out.contains("data:"));
+    }
+
+    #[test]
+    fn a_missing_asset_leaves_the_rest_of_the_page_alone() {
+        let dir = std::env::temp_dir().join("md-mcp-assets").join("absent");
+        let svg = "<svg><rect/><image href=\"assets/nope.png\"/><rect/></svg>";
+        assert_eq!(inline_assets(svg, &dir), svg);
+    }
+
+    #[test]
+    fn several_images_are_all_inlined() {
+        let dir = std::env::temp_dir()
+            .join("md-mcp-assets")
+            .join(format!("many-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let a = md_doc::assets::import_bytes(&dir, "a.png", &red_png()).unwrap();
+        let mut other = red_png();
+        other.push(0);
+        let b = md_doc::assets::import_bytes(&dir, "b.png", &other).unwrap();
+
+        let svg = format!(
+            "<image href=\"assets/{}\"/><image href=\"assets/{}\"/>",
+            a.name, b.name
+        );
+        let out = inline_assets(&svg, &dir);
+        assert_eq!(
+            out.matches("data:image/png;base64,").count(),
+            2,
+            "got {out}"
+        );
     }
 
     #[test]

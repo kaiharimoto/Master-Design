@@ -31,6 +31,7 @@
 //! * [`selection`] — what the person is pointing at, for the AI to read
 
 pub mod anim;
+pub mod assets;
 pub mod canonical;
 pub mod digest;
 pub mod document;

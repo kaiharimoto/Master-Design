@@ -9,6 +9,7 @@ export function App() {
   const [kind, setKind] = createSignal<ShellKind>("desktop");
   const [coarse, setCoarse] = createSignal(false);
   const [changedOutside, setChangedOutside] = createSignal(false);
+  const [dropping, setDropping] = createSignal(false);
 
   /**
    * Pick up changes made to the project by something other than this window — in
@@ -34,6 +35,34 @@ export function App() {
     });
   }
 
+  /**
+   * Accept image files dropped onto the window.
+   *
+   * The webview's own drag-and-drop is disabled by Tauri in favour of this, because a
+   * browser drop hands over a `File` object whose real path the sandbox will not reveal
+   * — and the project needs a path, so it can copy the file in rather than hold bytes in
+   * memory it cannot re-read after a restart.
+   */
+  async function acceptDroppedImages() {
+    if (!hasBackend()) return;
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+
+    return getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "over") {
+        setDropping(true);
+        return;
+      }
+      if (event.payload.type === "leave") {
+        setDropping(false);
+        return;
+      }
+      if (event.payload.type === "drop") {
+        setDropping(false);
+        void actions.placeImages(event.payload.paths, event.payload.position);
+      }
+    });
+  }
+
   onMount(() => {
     const measure = () => {
       const isCoarse = prefersCoarsePointer();
@@ -51,9 +80,11 @@ export function App() {
     void actions.init();
 
     const unlisten = watchForExternalChanges();
+    const unlistenDrop = acceptDroppedImages();
 
     onCleanup(() => {
       void unlisten.then((stop) => stop?.());
+      void unlistenDrop.then((stop) => stop?.());
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
       window.removeEventListener("keydown", onKeyDown);
@@ -139,6 +170,11 @@ export function App() {
           <Shell kind={kind()} coarse={coarse()} />
         </Show>
         <Updates />
+        <Show when={dropping() && state.editor?.document}>
+          <div class="dropzone" role="presentation">
+            <span>Drop images to add them</span>
+          </div>
+        </Show>
         <Show when={changedOutside()}>
           <div class="toast toast--info" role="status">
             <span>Reloaded — the project changed on disk.</span>

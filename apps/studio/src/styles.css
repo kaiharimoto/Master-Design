@@ -976,6 +976,29 @@ input[type="color"] {
   z-index: 40;
 }
 
+/* Shown only while a file is over the window, so it never covers the canvas otherwise. */
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 3px dashed var(--accent);
+  border-radius: 8px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.dropzone span {
+  background: var(--bg-raised);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
 .toast__body {
   display: grid;
   gap: 6px;

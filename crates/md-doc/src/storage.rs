@@ -32,7 +32,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const PROJECT_FILE: &str = "project.json";
 pub const TOKENS_FILE: &str = "tokens.json";
 pub const PAGES_DIR: &str = "pages";
-pub const ASSETS_DIR: &str = "assets";
+/// Re-exported from [`crate::assets`], which owns what goes in it.
+pub use crate::assets::ASSETS_DIR;
 pub const ANIMATIONS_DIR: &str = "animations";
 pub const REQUESTS_DIR: &str = "requests";
 
