@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/md-anim",
     "crates/md-doc",
+    "crates/md-emit",
     "crates/md-geom",
 ]
 
@@ -15,6 +17,7 @@ authors = ["Master Design contributors"]
 
 [workspace.dependencies]
 md-doc = { path = "crates/md-doc" }
+md-anim = { path = "crates/md-anim" }
 md-geom = { path = "crates/md-geom" }
 md-emit = { path = "crates/md-emit" }
 md-mcp = { path = "crates/md-mcp" }

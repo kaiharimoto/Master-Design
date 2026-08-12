@@ -1,0 +1,65 @@
+{
+  "id": "std/float",
+  "version": "1.0.0",
+  "title": "Float",
+  "description": "A slow, endless bob. Ambient motion for decorative shapes — enough to keep a page feeling alive, little enough to ignore while reading.",
+  "category": "ambient",
+  "tags": ["float", "loop", "bob", "idle", "ambient", "decorative"],
+  "appliesTo": {
+    "minTargets": 1,
+    "kinds": ["*"]
+  },
+  "defaultTrigger": {
+    "type": "loop",
+    "alternate": true
+  },
+  "params": [
+    {
+      "key": "distance",
+      "label": "Travel",
+      "type": "number",
+      "min": 1,
+      "max": 120,
+      "step": 1,
+      "unit": "px",
+      "default": 12
+    },
+    {
+      "key": "duration",
+      "label": "Duration",
+      "type": "number",
+      "min": 0.5,
+      "max": 20,
+      "step": 0.1,
+      "unit": "s",
+      "default": 3,
+      "description": "One direction of travel. A full up-and-down cycle takes twice this."
+    },
+    {
+      "key": "offset",
+      "label": "Per-element offset",
+      "type": "number",
+      "min": 0,
+      "max": 5,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.4,
+      "description": "Desynchronizes multiple elements. Leaving this at zero makes a group bob in lockstep, which reads as mechanical."
+    },
+    {
+      "key": "easing",
+      "label": "Easing",
+      "type": "easing",
+      "default": "easeInOut"
+    }
+  ],
+  "generator": {
+    "kind": "declarative",
+    "duration": "duration + offset * (count - 1)",
+    "perTarget": {
+      "startAt": "offset * index",
+      "endAt": "offset * index + duration",
+      "tracks": [{ "property": "translateY", "from": 0, "to": "=-distance" }]
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "id": "std/stagger-fade-up",
+  "version": "1.0.0",
+  "title": "Stagger Fade Up",
+  "description": "Elements rise into place one after another as they enter the viewport. The workhorse entrance for lists, card grids and stacked sections.",
+  "category": "entrance",
+  "tags": ["fade", "stagger", "entrance", "rise", "list"],
+  "appliesTo": {
+    "minTargets": 1,
+    "kinds": ["*"]
+  },
+  "defaultTrigger": {
+    "type": "view",
+    "threshold": 0.2,
+    "once": true
+  },
+  "params": [
+    {
+      "key": "distance",
+      "label": "Rise distance",
+      "type": "number",
+      "min": 0,
+      "max": 400,
+      "step": 1,
+      "unit": "px",
+      "default": 32,
+      "description": "How far below its final position each element starts."
+    },
+    {
+      "key": "duration",
+      "label": "Duration",
+      "type": "number",
+      "min": 0.05,
+      "max": 5,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.6,
+      "description": "How long a single element takes."
+    },
+    {
+      "key": "stagger",
+      "label": "Stagger",
+      "type": "number",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "unit": "s",
+      "default": 0.08,
+      "description": "Delay between one element starting and the next. Zero moves them together."
+    },
+    {
+      "key": "easing",
+      "label": "Easing",
+      "type": "easing",
+      "default": "easeOut",
+      "description": "Ease-out reads as arriving and settling, which is what an entrance should feel like."
+    }
+  ],
+  "generator": {
+    "kind": "declarative",
+    "duration": "duration + stagger * (count - 1)",
+    "perTarget": {
+      "startAt": "stagger * index",
+      "endAt": "stagger * index + duration",
+      "tracks": [
+        { "property": "opacity", "from": 0, "to": 1 },
+        { "property": "translateY", "from": "=distance", "to": 0 }
+      ]
+    }
+  }
+}

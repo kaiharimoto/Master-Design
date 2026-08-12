@@ -1,0 +1,66 @@
+{
+  "id": "std/hover-lift",
+  "version": "1.0.0",
+  "title": "Hover Lift",
+  "description": "Raises an element slightly under the pointer. On touch devices, where there is no hover, the runtime plays it on press instead so the element still acknowledges the tap.",
+  "category": "interaction",
+  "tags": ["hover", "lift", "card", "interaction", "affordance"],
+  "appliesTo": {
+    "minTargets": 1,
+    "kinds": ["*"]
+  },
+  "defaultTrigger": {
+    "type": "hover"
+  },
+  "params": [
+    {
+      "key": "lift",
+      "label": "Lift",
+      "type": "number",
+      "min": 0,
+      "max": 60,
+      "step": 1,
+      "unit": "px",
+      "default": 6
+    },
+    {
+      "key": "grow",
+      "label": "Grow to",
+      "type": "number",
+      "min": 1,
+      "max": 1.5,
+      "step": 0.01,
+      "unit": "×",
+      "default": 1.02
+    },
+    {
+      "key": "duration",
+      "label": "Duration",
+      "type": "number",
+      "min": 0.05,
+      "max": 1,
+      "step": 0.01,
+      "unit": "s",
+      "default": 0.2,
+      "description": "Keep this short. An interaction response that takes longer than about a quarter second stops feeling like a response."
+    },
+    {
+      "key": "easing",
+      "label": "Easing",
+      "type": "easing",
+      "default": "easeOut"
+    }
+  ],
+  "generator": {
+    "kind": "declarative",
+    "duration": "duration",
+    "perTarget": {
+      "startAt": 0,
+      "endAt": "duration",
+      "tracks": [
+        { "property": "translateY", "from": 0, "to": "=-lift" },
+        { "property": "scale", "from": 1, "to": "=grow" }
+      ]
+    }
+  }
+}

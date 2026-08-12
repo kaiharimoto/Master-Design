@@ -1,0 +1,57 @@
+{
+  "id": "std/scroll-parallax",
+  "version": "1.0.0",
+  "title": "Scroll Parallax",
+  "description": "Drifts an element as the page scrolls past it, so background layers travel more slowly than foreground ones. Progress comes from scroll position rather than from a clock, so it tracks the user's finger exactly.",
+  "category": "scroll",
+  "tags": ["parallax", "scroll", "depth", "drift", "ambient"],
+  "appliesTo": {
+    "minTargets": 1,
+    "kinds": ["*"]
+  },
+  "defaultTrigger": {
+    "type": "scroll",
+    "start": 0,
+    "end": 1
+  },
+  "params": [
+    {
+      "key": "distance",
+      "label": "Drift",
+      "type": "number",
+      "min": -600,
+      "max": 600,
+      "step": 5,
+      "unit": "px",
+      "default": 120,
+      "description": "Total travel across the scroll range. Negative values move against the scroll, which reads as closer to the viewer."
+    },
+    {
+      "key": "spread",
+      "label": "Per-layer offset",
+      "type": "number",
+      "min": 0,
+      "max": 200,
+      "step": 5,
+      "unit": "px",
+      "default": 0,
+      "description": "Adds this much extra drift to each subsequent target, so a stack of layers separates into depth."
+    }
+  ],
+  "generator": {
+    "kind": "declarative",
+    "duration": 1,
+    "perTarget": {
+      "startAt": 0,
+      "endAt": 1,
+      "tracks": [
+        {
+          "property": "translateY",
+          "from": "=(distance + spread * index) / 2",
+          "to": "=-(distance + spread * index) / 2",
+          "easing": "linear"
+        }
+      ]
+    }
+  }
+}
