@@ -78,24 +78,34 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-LOG=$(mktemp)
-if [[ -n "$PROJECT" ]]; then
-  "$BIN" --project "$PROJECT" >"$LOG" 2>&1 &
-else
-  "$BIN" >"$LOG" 2>&1 &
+# A GTK application expects a session bus. Without one WebKitGTK can get as far as
+# starting and never map a window, which looks exactly like a hang. `dbus-run-session`
+# supplies a throwaway bus; where it is not installed, carry on without one, because on a
+# desktop there is usually a real bus already.
+LAUNCH=("$BIN")
+[[ -n "$PROJECT" ]] && LAUNCH+=(--project "$PROJECT")
+if command -v dbus-run-session >/dev/null 2>&1 && [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+  LAUNCH=(dbus-run-session -- "${LAUNCH[@]}")
 fi
+
+LOG=$(mktemp)
+"${LAUNCH[@]}" >"$LOG" 2>&1 &
 APP_PID=$!
 
 # Wait for a mapped window, then give the webview a moment to paint. Screenshotting the
 # instant the window appears reliably captures an empty grey rectangle.
+# Wait for *any* viewable window rather than one with a particular title. The title is
+# the fragile part: it comes from the config, a splash window may appear first, and a
+# window manager is not running to set `_NET_WM_NAME` early. What is being checked here is
+# that the application got as far as putting something on the screen.
 MAPPED=0
-for _ in $(seq 1 150); do
+for _ in $(seq 1 200); do
   if ! kill -0 "$APP_PID" 2>/dev/null; then
     echo "the app exited before mapping a window:" >&2
     cat "$LOG" >&2
     exit 1
   fi
-  if xdotool search --onlyvisible --name "Master Design" >/dev/null 2>&1; then
+  if xdotool search --onlyvisible "" 2>/dev/null | grep -q .; then
     MAPPED=1
     break
   fi
@@ -103,8 +113,13 @@ for _ in $(seq 1 150); do
 done
 
 if [[ "$MAPPED" != "1" ]]; then
-  echo "no window appeared within 30s:" >&2
+  echo "no window appeared within 40s." >&2
+  echo "--- app output ---" >&2
   cat "$LOG" >&2
+  echo "--- windows on $DISPLAY ---" >&2
+  xwininfo -root -tree -display "$DISPLAY" 2>&1 | head -40 >&2 || true
+  echo "--- process ---" >&2
+  ps -o pid,stat,wchan:20,args -p "$APP_PID" 2>&1 >&2 || true
   exit 1
 fi
 

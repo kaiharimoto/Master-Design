@@ -90,7 +90,8 @@ jobs:
       # compiles perfectly and then panics before a window ever appears.
       - name: The application actually starts
         run: |
-          sudo apt-get install -y xvfb x11-utils xdotool imagemagick
+          sudo apt-get install -y xvfb x11-utils xdotool imagemagick \
+            dbus-x11 at-spi2-core
           (cd apps/studio/src-tauri && cargo build)
           ./scripts/studio-shot.sh /tmp/ci-studio.png 1280 800
           test -s /tmp/ci-studio.png
