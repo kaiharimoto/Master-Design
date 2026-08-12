@@ -358,25 +358,22 @@ impl Node {
 
     /// Bounding box in this node's own coordinate space, before its transform.
     ///
-    /// Text is estimated from font metrics we do not have here — the returned box is a
-    /// usable approximation for layout and selection, not a typesetting result. The
-    /// renderer measures for real.
+    /// Text is shaped and measured for real, through `md-text`. It used to be estimated
+    /// at a little over half an em per character, which was wrong for every font — a
+    /// heading's selection box could miss its last word — and meaningless for any script
+    /// that is not Latin.
     pub fn local_bounds(&self) -> Option<Bounds> {
         match &self.kind {
             NodeKind::Text(t) => {
-                let lines = t.hard_lines();
-                let height = t.line_height_units() * lines.len().max(1) as f64;
-                let width = t.width.unwrap_or_else(|| {
-                    // Rough advance width: most Latin text averages a little over half
-                    // an em per character.
-                    let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-                    longest as f64 * t.font.font_size * 0.55
-                });
+                let layout = t.layout();
                 Some(Bounds {
                     x: 0.0,
                     y: 0.0,
-                    w: width,
-                    h: t.height.unwrap_or(height),
+                    // An explicit measure wins over the measured extent: that is the
+                    // difference between point type and area type, and a designer who
+                    // dragged a text box to a width means it.
+                    w: t.width.unwrap_or(layout.width),
+                    h: t.height.unwrap_or(layout.height),
                 })
             }
             NodeKind::Group => {

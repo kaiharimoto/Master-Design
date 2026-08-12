@@ -40,17 +40,19 @@ impl Default for SnapshotOptions {
     }
 }
 
-/// The font database, loaded once.
+/// The font database the rasterizer draws with.
 ///
-/// Scanning system fonts takes long enough to be noticeable, and a model checking its
-/// work takes snapshots in bursts.
+/// Deliberately the *same* one `md-text` measured with. A snapshot rendered from a
+/// different set of fonts is a picture of a document that does not exist: the layout the
+/// model is looking at would be one the editor and the exported page never produce. It
+/// also means Inter is always present, which a bare system scan cannot promise — a CI
+/// runner or an Android device may not have it.
+///
+/// Cloned rather than borrowed because `usvg::Options` wants an `Arc` of its own; the
+/// clone happens once, on first use.
 fn fonts() -> &'static usvg::fontdb::Database {
     static DB: OnceLock<usvg::fontdb::Database> = OnceLock::new();
-    DB.get_or_init(|| {
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        db
-    })
+    DB.get_or_init(|| md_text::shared().db().clone())
 }
 
 /// Render a page to PNG bytes.
@@ -210,6 +212,54 @@ mod tests {
         let w = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
         let h = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
         (w, h)
+    }
+
+    /// The rasterizer must be able to draw the family the tool measures with, or a
+    /// snapshot is a picture of a document nobody will ever see.
+    ///
+    /// This is also the guard on a subtler failure: `md-text` and `resvg` share one
+    /// `fontdb`, and if a dependency bump ever split them into two versions the database
+    /// handed over here would be a different type — or worse, the same type from a
+    /// different crate, and the faces would silently not be found.
+    #[test]
+    fn the_rasterizer_has_the_font_the_measurements_used() {
+        let db = fonts();
+        assert!(db
+            .query(&usvg::fontdb::Query {
+                families: &[usvg::fontdb::Family::Name("Inter")],
+                weight: usvg::fontdb::Weight(400),
+                stretch: usvg::fontdb::Stretch::Normal,
+                style: usvg::fontdb::Style::Normal,
+            })
+            .is_some());
+    }
+
+    #[test]
+    fn text_reaches_the_pixels() {
+        use md_doc::text::TextGeometry;
+
+        let mut with_text = doc();
+        with_text.pages[0].root.children.push(
+            Node::new(
+                NodeId::from_static("nd_words"),
+                NodeKind::Text(TextGeometry::new("HELLO", "Inter", 200.0)),
+            )
+            .with_fill(Paint::solid("#ffffff").unwrap()),
+        );
+
+        let plain = snapshot(&doc(), "index", &SnapshotOptions::default())
+            .unwrap()
+            .0;
+        let lettered = snapshot(&with_text, "index", &SnapshotOptions::default())
+            .unwrap()
+            .0;
+
+        // If the font were missing, resvg would draw nothing and the two images would be
+        // identical — which is exactly the failure this catches.
+        assert_ne!(
+            plain, lettered,
+            "adding 200px of text changed no pixels, so no font was found"
+        );
     }
 
     #[test]

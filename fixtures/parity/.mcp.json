@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "master-design": {
+      "args": ["mcp", "."],
+      "command": "md"
+    }
+  }
+}

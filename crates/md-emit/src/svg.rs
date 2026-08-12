@@ -345,14 +345,52 @@ impl<'a> SvgWriter<'a> {
         format!("<path d=\"{}\"{attrs}{extra}/>", esc_attr(d))
     }
 
+    /// Draw a text node.
+    ///
+    /// Every position here comes from `md-text`, which shapes the run through the same
+    /// HarfBuzz algorithm the browser will use. Before that, baselines were placed at a
+    /// flat `0.8em` and wrapping did not happen at all, so a text box with a measure set
+    /// exported as one long line running out of the page.
     fn text(&mut self, node: &Node, t: &md_doc::TextGeometry) -> String {
         let f = &t.font;
         let anchor = t.align.text_anchor();
+        let layout = t.layout();
 
+        if layout.substituted {
+            self.warnings.push(format!(
+                "{}: no font matching \"{}\" {} was available, so it was measured and \
+                 exported in a substitute — text may not sit where it does in the editor",
+                node.display_name(),
+                f.font_family,
+                f.font_weight
+            ));
+        }
+        if !t.spans.is_empty() {
+            // Honest about a gap rather than dropping the overrides in silence.
+            self.warnings.push(format!(
+                "{}: character-range styling is not exported yet, so the whole block uses \
+                 the base style",
+                node.display_name()
+            ));
+        }
+
+        // The box the text is aligned within: what the designer set, or what it measured.
+        let box_width = t.width.unwrap_or(layout.width);
         let x = match t.align {
-            md_doc::TextAlign::Center => t.width.unwrap_or(0.0) / 2.0,
-            md_doc::TextAlign::Right => t.width.unwrap_or(0.0),
+            md_doc::TextAlign::Center => box_width / 2.0,
+            md_doc::TextAlign::Right => box_width,
             _ => 0.0,
+        };
+
+        // Vertical alignment only means anything inside a box with a stated height.
+        let slack = t
+            .height
+            .map(|h| (h - layout.height).max(0.0))
+            .unwrap_or(0.0);
+        let dy = match t.vertical_align {
+            md_doc::text::VerticalAlign::Top => 0.0,
+            md_doc::text::VerticalAlign::Middle => slack / 2.0,
+            md_doc::text::VerticalAlign::Bottom => slack,
         };
 
         let mut attrs = format!(
@@ -376,9 +414,6 @@ impl<'a> SvgWriter<'a> {
         if anchor != "start" {
             let _ = write!(attrs, " text-anchor=\"{anchor}\"");
         }
-        if let Some(case) = f.text_case.as_css() {
-            let _ = write!(attrs, " style=\"text-transform:{case}\"");
-        }
         match f.decoration {
             md_doc::text::TextDecoration::Underline => {
                 let _ = write!(attrs, " text-decoration=\"underline\"");
@@ -399,22 +434,30 @@ impl<'a> SvgWriter<'a> {
         };
         let _ = write!(attrs, " fill=\"{fill}\"{fill_opacity}");
 
-        let line_height = t.line_height_units();
-        // Approximate ascent. Real metrics need the font, which the exporter does not
-        // load; the editor measures properly and this is close enough that a design does
-        // not shift visibly between the two.
-        let first_baseline = f.font_size * 0.8;
+        // Outlined text is a real design choice — a hollow display heading, a knockout on
+        // a photograph — and it used to be dropped on the floor without a word.
+        if let Some(stroke) = node.strokes.first() {
+            let paint = self.paint_value(&stroke.paint, &format!("{}-ts", node.id));
+            let _ = write!(
+                attrs,
+                " stroke=\"{paint}\"{} stroke-width=\"{}\" paint-order=\"stroke\"",
+                opacity_attr("stroke-opacity", &stroke.paint),
+                num(stroke.width)
+            );
+        }
 
-        let lines: Vec<String> = t
-            .hard_lines()
+        // `text-transform` is baked into the emitted characters rather than left to CSS:
+        // a rasterizer has no CSS engine, so a snapshot of an uppercased heading would
+        // otherwise come back in mixed case and be measured at the wrong width.
+        let lines: Vec<String> = layout
+            .lines
             .iter()
-            .enumerate()
-            .map(|(i, line)| {
+            .map(|line| {
                 format!(
                     "<tspan x=\"{}\" y=\"{}\">{}</tspan>",
                     num(x),
-                    num(first_baseline + line_height * i as f64),
-                    esc_text(line)
+                    num(line.baseline + dy),
+                    esc_text(&line.text)
                 )
             })
             .collect();

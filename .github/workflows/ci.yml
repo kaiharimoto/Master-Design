@@ -166,6 +166,27 @@ jobs:
       - name: The exported page runs in a real browser
         run: |
           set -euo pipefail
-          npm install --no-save playwright@1
+          npm install --no-save playwright@1 pngjs
           npx playwright install --with-deps chromium
           node .github/scripts/check-export.mjs /tmp/out/index.html
+
+      # Two renderers exist and always will: one writes SVG for a browser, one rasterizes
+      # with resvg so a model can look at a page with no display server. Every feature has
+      # to be built twice, and the failure mode is not a crash — it is a screenshot that
+      # quietly does not match what a visitor sees. This is the mechanism that catches it.
+      - name: The two renderers agree
+        run: |
+          set -euo pipefail
+          MD=./target/release/md
+          $MD export fixtures/parity --out /tmp/parity-dist
+          $MD snapshot fixtures/parity --out /tmp/parity.png --width 900
+          node .github/scripts/renderer-parity.mjs /tmp/parity-dist/index.html /tmp/parity.png 900 700
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: renderer-parity
+          path: |
+            /tmp/parity.png
+            /tmp/parity-dist
+          if-no-files-found: ignore

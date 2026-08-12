@@ -1,0 +1,15 @@
+[package]
+name = "md-text"
+description = "Font loading, shaping and measurement"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fontdb = { version = "0.23", default-features = false, features = ["fs", "std"] }
+rustybuzz = "0.20"
+ttf-parser = "0.25"
+woff2-patched = "0.4"

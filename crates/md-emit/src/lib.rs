@@ -9,6 +9,7 @@
 //! ahead of time so the shipped runtime stays trivial.
 
 pub mod anim;
+pub mod fonts;
 pub mod frame;
 pub mod html;
 pub mod svg;
@@ -50,6 +51,13 @@ pub struct ExportOptions {
     pub assets_from: Option<PathBuf>,
     /// Export only this page, by id or slug.
     pub only_page: Option<String>,
+    /// Copy the fonts the document uses into the output and reference them.
+    ///
+    /// On by default: a page that merely names a font renders in whatever the visitor
+    /// happens to have, with different metrics, so every line wraps somewhere else than
+    /// the designer saw. Turning it off is for a site that already serves its own fonts
+    /// and does not want a second copy.
+    pub embed_fonts: bool,
 }
 
 impl Default for ExportOptions {
@@ -58,6 +66,7 @@ impl Default for ExportOptions {
             accessibility_outline: true,
             assets_from: None,
             only_page: None,
+            embed_fonts: true,
         }
     }
 }
@@ -101,6 +110,17 @@ pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String
     let mut warnings = compiled.warnings.clone();
     warnings.extend(writer.warnings.clone());
 
+    // The `@font-face` rules go in the page even when nothing writes the files — this
+    // function is also how the studio previews a page, and a preview with no typography
+    // is not a preview. `export` writes the files that back them.
+    let font_css = if opts.embed_fonts {
+        let (files, font_warnings) = fonts::plan(doc, Some(page.slug.as_str()));
+        warnings.extend(font_warnings);
+        files.iter().map(|f| f.css.clone()).collect::<String>()
+    } else {
+        String::new()
+    };
+
     let payload = compiled.to_payload();
     let (animations, runtime) = if compiled.is_empty() {
         (None, None)
@@ -115,6 +135,7 @@ pub fn render_page(doc: &Document, page: &Page, opts: &ExportOptions) -> (String
         animations,
         runtime,
         opts.accessibility_outline,
+        &font_css,
     );
 
     (html, warnings)
@@ -146,6 +167,22 @@ pub fn export(doc: &Document, out_dir: &Path, opts: &ExportOptions) -> Result<Ex
         fs::write(&path, &html)?;
         report.bytes += html.len();
         report.files.push(path);
+    }
+
+    if opts.embed_fonts {
+        // Written once for the whole site rather than per page: several pages usually
+        // share a typeface, and a browser caches one URL.
+        let (files, _) = fonts::plan(doc, opts.only_page.as_deref());
+        if !files.is_empty() {
+            let dir = out_dir.join(fonts::FONTS_DIR);
+            fs::create_dir_all(&dir)?;
+            for font in files {
+                let path = dir.join(&font.file_name);
+                fs::write(&path, font.bytes.as_slice())?;
+                report.bytes += font.bytes.len();
+                report.files.push(path);
+            }
+        }
     }
 
     if let Some(assets) = &opts.assets_from {
@@ -529,9 +566,67 @@ mod tests {
         ));
 
         let report = export(&d, &dir, &ExportOptions::default()).unwrap();
-        assert_eq!(report.files.len(), 2);
         assert!(dir.join("index.html").exists());
         assert!(dir.join("about/index.html").exists());
+        assert_eq!(
+            report
+                .files
+                .iter()
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("html"))
+                .count(),
+            2
+        );
         assert!(report.bytes > 0);
+    }
+
+    #[test]
+    fn a_page_ships_the_font_it_names() {
+        let dir = std::env::temp_dir()
+            .join("md-emit-tests")
+            .join(format!("fonts-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+
+        let report = export(&doc(), &dir, &ExportOptions::default()).unwrap();
+
+        let shipped: Vec<_> = report
+            .files
+            .iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("woff2"))
+            .collect();
+        assert!(!shipped.is_empty(), "no font file was written");
+        assert!(shipped.iter().all(|p| p.is_file()));
+
+        let html = fs::read_to_string(dir.join("index.html")).unwrap();
+        assert!(html.contains("@font-face"), "no rule pointed at it");
+        assert!(
+            html.contains(&format!("{}/", fonts::FONTS_DIR)),
+            "the rule did not reference the fonts directory: {html}"
+        );
+    }
+
+    #[test]
+    fn font_embedding_can_be_turned_off() {
+        let dir = std::env::temp_dir()
+            .join("md-emit-tests")
+            .join(format!("nofonts-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+
+        let report = export(
+            &doc(),
+            &dir,
+            &ExportOptions {
+                embed_fonts: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(!report
+            .files
+            .iter()
+            .any(|p| p.extension().and_then(|e| e.to_str()) == Some("woff2")));
+        assert!(!fs::read_to_string(dir.join("index.html"))
+            .unwrap()
+            .contains("@font-face"));
     }
 }

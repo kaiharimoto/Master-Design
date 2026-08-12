@@ -213,8 +213,9 @@ impl TextGeometry {
 
     /// Lines after hard breaks, before any wrapping.
     ///
-    /// Real wrapping needs font metrics, which live in the renderer; this is what the
-    /// exporter uses to lay out `<tspan>`s when no measure is set.
+    /// Kept for callers that genuinely want the authored structure rather than the set
+    /// one — a diff, say. Anything drawing or measuring should use [`Self::layout`],
+    /// which also wraps.
     pub fn hard_lines(&self) -> Vec<&str> {
         self.content.split('\n').collect()
     }
@@ -223,6 +224,68 @@ impl TextGeometry {
     pub fn line_height_units(&self) -> f64 {
         self.font.line_height * self.font.font_size
     }
+
+    /// This text as `md-text` needs to see it.
+    ///
+    /// [`TextCase`] is applied here rather than left to CSS, because a browser's
+    /// `text-transform` changes what is *drawn*, so measuring the untransformed string
+    /// would size the box for text nobody sees. Uppercase is materially wider.
+    pub fn run(&self) -> md_text::Run<'_> {
+        md_text::Run {
+            text: "",
+            family: &self.font.font_family,
+            size: self.font.font_size,
+            weight: self.font.font_weight,
+            italic: self.font.italic,
+            letter_spacing: self.font.letter_spacing,
+            line_height: self.font.line_height,
+            max_width: self.width,
+        }
+    }
+
+    /// The text as it will be drawn, with [`TextCase`] applied.
+    pub fn shown_content(&self) -> std::borrow::Cow<'_, str> {
+        use std::borrow::Cow;
+        match self.font.text_case {
+            TextCase::Original => Cow::Borrowed(&self.content),
+            TextCase::Upper => Cow::Owned(self.content.to_uppercase()),
+            TextCase::Lower => Cow::Owned(self.content.to_lowercase()),
+            TextCase::Title => Cow::Owned(title_case(&self.content)),
+        }
+    }
+
+    /// Shape, wrap and measure, using the process-wide font set.
+    ///
+    /// The one place text becomes geometry. Selection, auto-layout, export and snapshots
+    /// all come through here, which is what stops the editor and the exported page
+    /// disagreeing about where a heading ends.
+    pub fn layout(&self) -> md_text::Layout {
+        let shown = self.shown_content();
+        md_text::shared().measure(&md_text::Run {
+            text: &shown,
+            ..self.run()
+        })
+    }
+}
+
+/// Capitalise the first letter of each word, the way CSS `text-transform: capitalize`
+/// does — it touches the first letter and leaves the rest of the word alone, so `iOS`
+/// stays `iOS` rather than becoming `Ios`.
+fn title_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut at_word_start = true;
+    for c in s.chars() {
+        if at_word_start && c.is_alphabetic() {
+            out.extend(c.to_uppercase());
+            at_word_start = false;
+        } else {
+            out.push(c);
+            if !c.is_alphanumeric() && c != '\'' && c != '’' {
+                at_word_start = true;
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

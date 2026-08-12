@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "breakpoints": [
+      {
+        "minWidth": 0,
+        "name": "sm"
+      },
+      {
+        "minWidth": 768,
+        "name": "md"
+      },
+      {
+        "minWidth": 1280,
+        "name": "lg"
+      }
+    ],
+    "name": "Typography"
+  },
+  "pages": [
+    {
+      "file": "index.json",
+      "id": "pg_01kzvaskwxe9j2d4q6vce419nm",
+      "slug": "index"
+    }
+  ],
+  "schemaVersion": 1
+}

@@ -13,6 +13,8 @@ pub fn page_html(
     animations: Option<&str>,
     runtime: Option<&str>,
     outline: bool,
+    // `@font-face` rules for the faces this page uses, or empty.
+    font_css: &str,
 ) -> String {
     let title = if page.name.is_empty() {
         doc.meta.name.clone()
@@ -53,6 +55,8 @@ pub fn page_html(
         .map(|js| format!("<script>{js}</script>"))
         .unwrap_or_default();
 
+    let css = format!("{font_css}{}", stylesheet(page));
+
     format!(
         "<!doctype html>\n\
 <html lang=\"en\">\n\
@@ -71,7 +75,9 @@ pub fn page_html(
 </body>\n\
 </html>\n",
         title = esc_text(&title),
-        css = stylesheet(page),
+        // Font rules first: a browser starts fetching a font the moment it sees the rule,
+        // and everything after it in the sheet is cheap by comparison.
+        css = css,
     )
 }
 
@@ -414,6 +420,7 @@ mod tests {
             Some(&payload),
             None,
             false,
+            "",
         );
 
         assert!(

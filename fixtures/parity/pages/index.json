@@ -1,0 +1,216 @@
+{
+  "background": {
+    "color": "#ffffff",
+    "type": "solid"
+  },
+  "height": 700,
+  "id": "pg_01kzvaskwxe9j2d4q6vce419nm",
+  "name": "Home",
+  "root": {
+    "children": [
+      {
+        "content": "Typography that measures itself",
+        "fills": [
+          {
+            "color": "#101820",
+            "type": "solid"
+          }
+        ],
+        "fontFamily": "Inter",
+        "fontSize": 52,
+        "fontWeight": 800,
+        "id": "nd_h",
+        "letterSpacing": -0.02,
+        "roles": ["title"],
+        "transform": [1, 0, 0, 1, 60, 60],
+        "type": "text",
+        "width": 780
+      },
+      {
+        "content": "Every line here was shaped through HarfBuzz and broken at a real measure. The old estimate assumed a little over half an em per character, which is wrong for every font and visibly wrong for a heading. Kerned pairs like AV Wa To now come out narrower than the sum of their parts.",
+        "fills": [
+          {
+            "color": "#39424e",
+            "type": "solid"
+          }
+        ],
+        "fontFamily": "Inter",
+        "fontSize": 20,
+        "id": "nd_body",
+        "lineHeight": 1.6,
+        "roles": ["body"],
+        "transform": [1, 0, 0, 1, 60, 240],
+        "type": "text",
+        "width": 780
+      },
+      {
+        "align": "center",
+        "content": "CENTRED IN ITS BOX",
+        "fills": [
+          {
+            "color": "#6d5efc",
+            "type": "solid"
+          }
+        ],
+        "fontFamily": "Inter",
+        "fontSize": 24,
+        "fontWeight": 600,
+        "id": "nd_centre",
+        "roles": ["caption"],
+        "textCase": "upper",
+        "transform": [1, 0, 0, 1, 60, 520],
+        "type": "text",
+        "width": 780
+      },
+      {
+        "content": "Outlined",
+        "fills": [
+          {
+            "color": "#ffffff",
+            "type": "solid"
+          }
+        ],
+        "fontFamily": "Inter",
+        "fontSize": 40,
+        "fontWeight": 700,
+        "id": "nd_outline",
+        "italic": true,
+        "roles": ["caption"],
+        "strokes": [
+          {
+            "paint": {
+              "color": "#101820",
+              "type": "solid"
+            },
+            "width": 2
+          }
+        ],
+        "transform": [1, 0, 0, 1, 60, 590],
+        "type": "text"
+      },
+      {
+        "cornerRadius": [18, 18, 18, 18],
+        "effects": [
+          {
+            "blur": 18,
+            "color": "#10182055",
+            "dx": 0,
+            "dy": 8,
+            "type": "dropShadow"
+          }
+        ],
+        "fills": [
+          {
+            "from": [0, 0],
+            "stops": [
+              {
+                "color": "#6d5efc",
+                "offset": 0
+              },
+              {
+                "color": "#12b981",
+                "offset": 1
+              }
+            ],
+            "to": [1, 1],
+            "type": "linearGradient"
+          }
+        ],
+        "height": 110,
+        "id": "nd_grad",
+        "roles": ["swatch"],
+        "transform": [1, 0, 0, 1, 60, 390],
+        "type": "rect",
+        "width": 200
+      },
+      {
+        "fills": [
+          {
+            "center": [0.4, 0.35],
+            "radius": 0.7,
+            "stops": [
+              {
+                "color": "#ffd166",
+                "offset": 0
+              },
+              {
+                "color": "#ef476f",
+                "offset": 1
+              }
+            ],
+            "type": "radialGradient"
+          }
+        ],
+        "height": 110,
+        "id": "nd_ell",
+        "roles": ["swatch"],
+        "strokes": [
+          {
+            "paint": {
+              "color": "#101820",
+              "type": "solid"
+            },
+            "width": 3
+          }
+        ],
+        "transform": [0.966, 0.259, -0.259, 0.966, 320, 390],
+        "type": "ellipse",
+        "width": 150
+      },
+      {
+        "d": "M0 0 L120 0 L120 100 L0 100 Z M30 25 L90 25 L90 75 L30 75 Z",
+        "fillRule": "evenOdd",
+        "fills": [
+          {
+            "color": "#0ea5e9",
+            "type": "solid"
+          }
+        ],
+        "id": "nd_path",
+        "opacity": 0.8,
+        "roles": ["swatch"],
+        "transform": [1, 0, 0, 1, 520, 395],
+        "type": "path"
+      },
+      {
+        "children": [
+          {
+            "fills": [
+              {
+                "color": "#6d5efc",
+                "type": "solid"
+              }
+            ],
+            "height": 40,
+            "id": "nd_clipped",
+            "transform": [1, 0, 0, 1, -40, 35],
+            "type": "rect",
+            "width": 300
+          }
+        ],
+        "clip": true,
+        "cornerRadius": [999, 999, 999, 999],
+        "fills": [
+          {
+            "color": "#f1f5f9",
+            "type": "solid"
+          }
+        ],
+        "height": 110,
+        "id": "nd_clip",
+        "roles": ["swatch"],
+        "transform": [1, 0, 0, 1, 690, 390],
+        "type": "frame",
+        "width": 140
+      }
+    ],
+    "clip": true,
+    "height": 700,
+    "id": "nd_01kzvaskwxjgrr2jathkcrxzjq",
+    "name": "Home",
+    "type": "frame",
+    "width": 900
+  },
+  "slug": "index",
+  "width": 900
+}
