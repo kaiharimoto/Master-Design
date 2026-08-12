@@ -1,0 +1,16 @@
+[package]
+name = "md-doc"
+description = "The Master Design document model: scene graph, canonical serialization, patch protocol and history."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+md-geom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ulid.workspace = true

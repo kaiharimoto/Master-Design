@@ -1,0 +1,27 @@
+[package]
+name = "md-geom"
+description = "Geometry kernel for Master Design: bezier math, boolean ops, stroke outlining, curve fitting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kurbo.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+geo = "0.29"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+approx = "0.5"

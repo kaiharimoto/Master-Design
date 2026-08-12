@@ -1,0 +1,40 @@
+# Rust
+/target
+**/target
+Cargo.lock.orig
+
+# Node
+node_modules
+.pnpm-store
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Tauri
+apps/studio/src-tauri/gen
+apps/studio/src-tauri/target
+
+# WASM build output
+packages/md-geom-wasm/pkg
+crates/md-geom/pkg
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Local artifacts
+*.log
+.env
+.env.local
+/out
+/build-out
+
+# Signing keys — never commit these
+*.p12
+*.keystore
+*.jks
+*.key
+!**/public.key

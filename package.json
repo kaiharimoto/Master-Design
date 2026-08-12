@@ -1,0 +1,28 @@
+{
+  "name": "master-design",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Design and build graphic animated websites, with an AI coding model as a first-class co-editor.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaiharimoto/Master-Design"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @master-design/studio dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:rust": "cargo test --workspace",
+    "fmt": "cargo fmt --all && prettier --write .",
+    "lint": "cargo clippy --workspace --all-targets -- -D warnings"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

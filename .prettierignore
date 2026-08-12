@@ -1,0 +1,7 @@
+node_modules
+dist
+target
+pnpm-lock.yaml
+examples/**/*.json
+packages/md-schema/src/generated
+apps/studio/src-tauri/gen
