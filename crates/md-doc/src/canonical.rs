@@ -141,12 +141,28 @@ fn write_scalar(out: &mut String, v: &Value) {
     match v {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Number(n) => out.push_str(&n.to_string()),
+        Value::Number(n) => out.push_str(&format_number(n)),
         Value::String(s) => out.push_str(&escape_string(s)),
         // Only reachable if a nested value slips into an "inlinable" array; falling
         // back to compact JSON keeps the output valid rather than silently wrong.
         other => out.push_str(&other.to_string()),
     }
+}
+
+/// Print a number the way a person would write it.
+///
+/// A width of 800 is stored as an `f64` and would otherwise serialize as `800.0`. That
+/// is correct and ugly, and the ugliness is multiplied across every coordinate in every
+/// file. Dropping the empty fraction stays stable through a round trip: reading `800`
+/// back into an `f64` field gives the same value, and re-serializing gives the same
+/// text.
+fn format_number(n: &serde_json::Number) -> String {
+    if let Some(f) = n.as_f64() {
+        if n.as_i64().is_none() && n.as_u64().is_none() && f.fract() == 0.0 && f.abs() < 1e15 {
+            return format!("{}", f as i64);
+        }
+    }
+    n.to_string()
 }
 
 fn escape_string(s: &str) -> String {
@@ -201,6 +217,29 @@ mod tests {
         let reparsed: Value = serde_json::from_str(&once).unwrap();
         let twice = to_canonical_string(&reparsed).unwrap();
         assert_eq!(once, twice, "canonical form is not a fixed point");
+    }
+
+    #[test]
+    fn whole_numbers_lose_their_empty_fraction() {
+        let s = to_canonical_string(&json!({ "width": 800.0f64, "opacity": 0.5f64 })).unwrap();
+        assert_eq!(s, "{\n  \"opacity\": 0.5,\n  \"width\": 800\n}\n");
+    }
+
+    #[test]
+    fn dropping_the_fraction_survives_a_round_trip() {
+        // The risk: `800.0` becomes `800`, reparses as an integer, and something
+        // downstream serializes it differently the second time.
+        let once = to_canonical_string(&json!({ "width": 800.0f64 })).unwrap();
+        let reparsed: Value = serde_json::from_str(&once).unwrap();
+        assert_eq!(to_canonical_string(&reparsed).unwrap(), once);
+
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Sized {
+            width: f64,
+        }
+        let typed: Sized = serde_json::from_str(&once).unwrap();
+        assert_eq!(typed.width, 800.0);
+        assert_eq!(to_canonical_string(&typed).unwrap(), once);
     }
 
     #[test]

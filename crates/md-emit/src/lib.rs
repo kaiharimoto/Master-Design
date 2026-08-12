@@ -9,6 +9,7 @@
 //! ahead of time so the shipped runtime stays trivial.
 
 pub mod anim;
+pub mod frame;
 pub mod html;
 pub mod svg;
 

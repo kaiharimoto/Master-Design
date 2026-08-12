@@ -1,0 +1,20 @@
+[package]
+name = "md-mcp"
+description = "Model Context Protocol server exposing a Master Design project to an AI coding model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+md-anim.workspace = true
+md-doc.workspace = true
+md-emit.workspace = true
+md-geom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+resvg = "0.45"
+base64 = "0.22"

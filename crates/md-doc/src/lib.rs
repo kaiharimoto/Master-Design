@@ -28,6 +28,7 @@
 //! * [`query`] — selectors, so a patch can address "every card" rather than an id
 //! * [`digest`] — a compact rendering of a document for a model to read
 //! * [`storage`] — the on-disk project directory
+//! * [`selection`] — what the person is pointing at, for the AI to read
 
 pub mod anim;
 pub mod canonical;
@@ -40,6 +41,7 @@ pub mod node;
 pub mod paint;
 pub mod patch;
 pub mod query;
+pub mod selection;
 pub mod storage;
 pub mod text;
 pub mod transform;
@@ -57,5 +59,6 @@ pub use node::{
 pub use paint::{BlendMode, Color, Effect, GradientStop, Paint, Stroke};
 pub use patch::{Op, PatchReport};
 pub use query::Selector;
+pub use selection::Selection;
 pub use text::{TextAlign, TextGeometry};
 pub use transform::Transform;

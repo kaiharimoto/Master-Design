@@ -1,0 +1,23 @@
+[package]
+name = "md-cli"
+description = "Command line interface to Master Design: export, patch, snapshot, and the MCP server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "md"
+path = "src/main.rs"
+
+[dependencies]
+md-anim.workspace = true
+md-doc.workspace = true
+md-emit.workspace = true
+md-geom.workspace = true
+md-mcp.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true

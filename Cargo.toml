@@ -4,6 +4,8 @@ members = [
     "crates/md-anim",
     "crates/md-doc",
     "crates/md-emit",
+    "crates/md-cli",
+    "crates/md-mcp",
     "crates/md-geom",
 ]
 
